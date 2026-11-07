@@ -403,12 +403,20 @@ class AccountCommands(commands.Cog):
             await api.close()
 
     @app_commands.command(name="add", description="Request adding time to your own active session")
-    @app_commands.describe(duration="For example: 2 hours, 1 day 30 minutes, or 45m")
-    async def add(self, interaction: discord.Interaction, duration: str):
+    @app_commands.describe(amount="How many units to add", unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.choices(unit=[
+        app_commands.Choice(name="Seconds", value="seconds"),
+        app_commands.Choice(name="Minutes", value="minutes"),
+        app_commands.Choice(name="Hours", value="hours"),
+        app_commands.Choice(name="Days", value="days"),
+        app_commands.Choice(name="Weeks", value="weeks"),
+    ])
+    async def add(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100000], unit: app_commands.Choice[str]):
         account = self.bot.storage.get_account(interaction.user.id)
         if not account:
             await interaction.response.send_message("Use /link first.", ephemeral=True)
             return
+        duration = f"{amount} {unit.value}"
         try:
             seconds = parse_duration(duration)
         except ValueError as exc:
@@ -436,8 +444,17 @@ class AccountCommands(commands.Cog):
 
     @app_commands.command(name="subtract", description="Request subtracting time from a linked wearer you hold")
     @app_commands.describe(wearer="The Discord member whose EmlaLock session you hold",
-                           duration="For example: 2 hours or 30 minutes")
-    async def subtract(self, interaction: discord.Interaction, wearer: discord.Member, duration: str):
+                           amount="How many units to subtract", unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.choices(unit=[
+        app_commands.Choice(name="Seconds", value="seconds"),
+        app_commands.Choice(name="Minutes", value="minutes"),
+        app_commands.Choice(name="Hours", value="hours"),
+        app_commands.Choice(name="Days", value="days"),
+        app_commands.Choice(name="Weeks", value="weeks"),
+    ])
+    async def subtract(self, interaction: discord.Interaction, wearer: discord.Member,
+                       amount: app_commands.Range[int, 1, 100000], unit: app_commands.Choice[str]):
+        duration = f"{amount} {unit.value}"
         if wearer.id == interaction.user.id:
             await interaction.response.send_message("Choose the wearer account, not your own holder account.", ephemeral=True)
             return
