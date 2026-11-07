@@ -698,6 +698,7 @@ class AccountCommands(commands.Cog):
             view=view, ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
+    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def setuproles(self, interaction: discord.Interaction, wearer_role_name: str = "Wearer",
                          keyholder_role_name: str = "Keyholder", dual_role_name: str = "Dual Role"):
@@ -723,6 +724,7 @@ class AccountCommands(commands.Cog):
             await interaction.followup.send("I need Manage Roles permission and a role position above the roles to manage.", ephemeral=True)
 
     @app_commands.command(name="syncroles", description="Synchronize session roles from linked EmlaLock accounts")
+    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def syncroles(self, interaction: discord.Interaction):
         guild = interaction.guild
