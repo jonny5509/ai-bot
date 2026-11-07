@@ -518,9 +518,20 @@ class AccountCommands(commands.Cog):
             f"Linked EmlaLock User ID: {account['emlalock_user_id']}. API key is stored encrypted.",
             ephemeral=True)
 
-    @app_commands.command(name="friendlink", description="Post your session Friend Link, or one for a session you hold")
-    @app_commands.describe(wearer="For keyholders: select the linked wearer whose session you hold")
-    async def friendlink(self, interaction: discord.Interaction, wearer: discord.Member | None = None):
+    @app_commands.command(name="friendlink", description="Post a Friend Link for your own wearer session")
+    async def friendlink(self, interaction: discord.Interaction):
+        await self._post_friendlink(interaction)
+
+    @app_commands.command(name="friendlink_for", description="Keyholders: post a linked wearer's Friend Link")
+    @app_commands.describe(wearer="The linked wearer whose active session you hold")
+    async def friendlink_for(self, interaction: discord.Interaction, wearer: discord.Member):
+        if wearer.id == interaction.user.id:
+            await interaction.response.send_message(
+                "Use /friendlink to post your own session Friend Link.", ephemeral=True)
+            return
+        await self._post_friendlink(interaction, wearer)
+
+    async def _post_friendlink(self, interaction: discord.Interaction, wearer: discord.Member | None = None):
         actor = self.bot.storage.get_account(interaction.user.id)
         if not actor:
             await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
@@ -567,7 +578,7 @@ class AccountCommands(commands.Cog):
                             f"• <@{item[0]['discord_user_id']}> — session {item[1].get('chastitysessionid', 'unknown')}"
                             for item in held)
                         await interaction.followup.send(
-                            "You hold multiple linked active sessions. Run /friendlink and select a wearer:\n" + choices,
+                            "You hold multiple linked active sessions. Use /friendlink_for and choose the wearer:\n" + choices,
                             ephemeral=True)
                         return
                 if session is None:
