@@ -137,6 +137,86 @@ class ConfirmTimeView(discord.ui.View):
         await interaction.response.edit_message(content="Cancelled. No EmlaLock change was made.", view=self)
 
 
+class WearerChoiceSelect(discord.ui.Select):
+    def __init__(self, choices):
+        options = [
+            discord.SelectOption(
+                label=discord.utils.escape_markdown(member.display_name)[:100],
+                description=f"Active session {session.get('chastitysessionid', 'unknown')}"[:100],
+                value=str(member.id),
+            )
+            for member, _account, session in choices[:25]
+        ]
+        super().__init__(
+            placeholder="Choose which wearer to add time to",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.view.select_wearer(interaction, int(self.values[0]))
+
+
+class WearerChoiceView(discord.ui.View):
+    def __init__(self, bot, actor_id: int, seconds: int, duration: str, choices):
+        super().__init__(timeout=90)
+        self.bot = bot
+        self.actor_id = actor_id
+        self.seconds = seconds
+        self.duration = duration
+        self.choices = {member.id: (member, account, session)
+                        for member, account, session in choices[:25]}
+        self.add_item(WearerChoiceSelect(choices))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.actor_id:
+            await interaction.response.send_message(
+                "Only the keyholder who requested this change can choose a wearer.", ephemeral=True)
+            return False
+        return True
+
+    async def select_wearer(self, interaction: discord.Interaction, wearer_id: int):
+        selected = self.choices.get(wearer_id)
+        if not selected:
+            await interaction.response.send_message(
+                "That wearer is no longer available. Please run /add again.", ephemeral=True)
+            return
+        member, _account, _old_session = selected
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        try:
+            actor = self.bot.storage.get_account(self.actor_id)
+            target = self.bot.storage.get_account(member.id)
+            if not actor or not target:
+                raise EmlaLockError("The keyholder or selected wearer account is no longer linked.")
+            data = await api.info(target["emlalock_user_id"], target["api_key"])
+            session = data.get("chastitysession") or {}
+            if (int(session.get("status", 0)) != 1
+                    or str(session.get("wearerid")) != str(target["emlalock_user_id"])
+                    or str(session.get("holderid")) != str(actor["emlalock_user_id"])):
+                raise EmlaLockError(
+                    "EmlaLock no longer shows you as the keyholder for that active wearer session.")
+            session_id = str(session.get("chastitysessionid", ""))
+            confirmation = ConfirmTimeView(
+                self.bot, self.actor_id, "add", self.seconds,
+                target_id=member.id, expected_session_id=session_id)
+            await interaction.edit_original_response(
+                content=(f"Please confirm: **add {self.duration}** to "
+                         f"{discord.utils.escape_markdown(member.display_name)}'s session "
+                         f"(**{session_id}**)? The session and keyholder permission will be checked again."),
+                view=confirmation)
+            self.stop()
+        except (EmlaLockError, ValueError, TypeError) as exc:
+            await interaction.edit_original_response(
+                content=f"Could not verify that wearer session: {exc}", view=None)
+        except Exception:
+            await interaction.edit_original_response(
+                content="Something went wrong while checking that wearer. Please try again.", view=None)
+        finally:
+            await api.close()
+
+
 class AccountCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -465,15 +545,11 @@ class AccountCommands(commands.Cog):
                     if len(held_wearers) == 1:
                         wearer, _linked_account, _matched_session = held_wearers[0]
                     elif len(held_wearers) > 1:
-                        choices = "\n".join(
-                            f"• {discord.utils.escape_markdown(item[0].display_name)} "
-                            f"(session {item[2].get('chastitysessionid', 'unknown')})"
-                            for item in held_wearers
-                        )
+                        view = WearerChoiceView(
+                            self.bot, interaction.user.id, seconds, duration, held_wearers)
                         await interaction.response.send_message(
-                            "You hold more than one linked active wearer session. "
-                            "Choose the wearer in the wearer option so I don't guess:\\n" + choices,
-                            ephemeral=True)
+                            "You hold multiple linked active wearer sessions. Select who to add time to:",
+                            view=view, ephemeral=True)
                         return
                     else:
                         await interaction.response.send_message(
