@@ -19,7 +19,8 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - Re-checks session status and holder/wearer relationship immediately before a mutation.
 - `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
 - `/setupadoption` creates automatic **Looking for Keyholder** and **Looking for Wearer** roles. A linked wearer with an active session and no holder receives Looking for Keyholder; a linked holder whose active session has no wearer receives Looking for Wearer.
-- `/adoptionpanel` posts persistent buttons to find someone with the opposite adoption role. Members select a candidate and send a private adoption request with Accept and Decline buttons. Both accounts must be linked, and the bot notifies the requester when the other member responds.
+- `/adoptionpanel` posts persistent buttons to find someone with the opposite adoption role.
+- `/setupchannels` lets administrators select separate bot-command, session-update, adoption, Friend Link and log channels. Session announcements, adoption panels and Friend Link posts use their configured destinations. Members select a candidate and send a private adoption request with Accept and Decline buttons. Both accounts must be linked, and the bot notifies the requester when the other member responds.
 - `/unlink` to disconnect an account.
 
 ## Important API limitations
@@ -106,6 +107,7 @@ The updater downloads the latest `main` branch from GitHub. It leaves `.env`, lo
 | `/session` | View your current session privately |\n| `/friendlink` | Post your own wearer-session Friend Link |\n| `/friendlink_for @wearer` | Keyholder posts a linked wearer's Friend Link when permitted |
 | `/add 2 hours` | Request adding time to your own session |
 | `/subtract @member 30 minutes` | Request holder-authorized subtraction |
+| `/setupchannels` | Configure separate channels for bot activity |
 | `/setuproles` | Create the three managed session roles |
 | `/syncroles` | Synchronize roles for linked members |
 | `/setupadoption` | Create automatic adoption matching roles |
