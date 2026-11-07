@@ -2,6 +2,10 @@ import logging
 import secrets
 import time
 
+# EmlaLock accepts finite integer seconds for /addrandom. This conservative
+# signed-32-bit ceiling is roughly 68 years and avoids an arbitrary week cap.
+MAX_UNLIMITED_RANDOM_SECONDS = 2_147_483_647
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -120,13 +124,44 @@ class ConfirmTimeView(discord.ui.View):
                 holder_check = await api.info(holder["emlalock_user_id"], holder["api_key"])
                 if str(holder_check.get("user", {}).get("userid", "")) != holder_id:
                     raise EmlaLockError("The linked keyholder account could not be verified. No time change was made.")
+                # EmlaLock reports maxduration=0 when no maximum duration is set.
+                # In that mode additions are effectively unbounded on the website;
+                # /addrandom still needs a finite integer range, so use a very large
+                # API-safe ceiling. Subtraction is limited to the currently remaining
+                # session time so it cannot request removing more time than exists.
+                raw_maximum = session.get("maxduration")
+                try:
+                    maximum_duration = int(float(raw_maximum)) if raw_maximum is not None else None
+                except (TypeError, ValueError, OverflowError):
+                    maximum_duration = None
+                unlimited_maximum = maximum_duration == 0
                 try:
                     random_initial_end = int(float(session.get("enddate")))
+                    remaining_seconds = random_initial_end - int(time.time())
                 except (TypeError, ValueError, OverflowError):
-                    raise EmlaLockError("EmlaLock did not provide a valid session end date. No time change was made.") from None
-                max_seconds = random_initial_end - int(time.time())
-                if max_seconds < 1:
-                    raise EmlaLockError("The session has no remaining time to use as the random limit.")
+                    random_initial_end = None
+                    remaining_seconds = 0
+                if unlimited_maximum:
+                    max_add_seconds = MAX_UNLIMITED_RANDOM_SECONDS
+                    if remaining_seconds < 1:
+                        try:
+                            remaining_seconds = int(float(session.get("duration")))
+                        except (TypeError, ValueError, OverflowError):
+                            remaining_seconds = 0
+                    max_subtract_seconds = min(MAX_UNLIMITED_RANDOM_SECONDS, remaining_seconds)
+                    if max_subtract_seconds < 1:
+                        raise EmlaLockError("EmlaLock did not provide a usable current duration for subtraction.")
+                else:
+                    if maximum_duration is None and random_initial_end is None:
+                        raise EmlaLockError("EmlaLock did not provide a valid session end date or maximum-duration setting.")
+                    max_add_seconds = remaining_seconds
+                    max_subtract_seconds = remaining_seconds
+                    if max_add_seconds < 1:
+                        raise EmlaLockError("The session has no remaining time to use as the random limit.")
+                try:
+                    random_initial_duration = int(float(session.get("duration")))
+                except (TypeError, ValueError, OverflowError):
+                    random_initial_duration = None
                 if not self.bot.storage.claim_daily_random_add(target["emlalock_user_id"]):
                     raise EmlaLockError("You have already used your daily random time change. You can use it again after 00:00 UTC.")
                 random_claimed = True
@@ -134,10 +169,10 @@ class ConfirmTimeView(discord.ui.View):
                     self.random_direction = "add"
                     result = await api.add_random_time(
                         target["emlalock_user_id"], target["api_key"],
-                        1, max_seconds, "Discord daily random time")
+                        1, max_add_seconds, "Discord daily random time")
                 else:
                     self.random_direction = "subtract"
-                    self.seconds = secrets.randbelow(max_seconds) + 1
+                    self.seconds = secrets.randbelow(max_subtract_seconds) + 1
                     result = await api.subtract_time(
                         target["emlalock_user_id"], target["api_key"],
                         holder["api_key"], self.seconds, "Discord daily random time")
@@ -189,7 +224,11 @@ class ConfirmTimeView(discord.ui.View):
                 try:
                     self.seconds = max(1, int(float(updated_session.get("enddate"))) - random_initial_end)
                 except (TypeError, ValueError, OverflowError):
-                    self.seconds = 0
+                    try:
+                        updated_duration = int(float(updated_session.get("duration")))
+                        self.seconds = max(1, updated_duration - random_initial_duration)
+                    except (TypeError, ValueError, OverflowError):
+                        self.seconds = 0
             await interaction.edit_original_response(
                 content=f"Change applied successfully. Session: {session_id}.", view=self)
             await self._post_change_notification(interaction, actor, target, updated_session, session_id)
@@ -1050,18 +1089,43 @@ class AccountCommands(commands.Cog):
                     "Your session's keyholder must link their EmlaLock account with /link before random time can be used. No time has been changed.",
                     ephemeral=True)
                 return
+            raw_maximum = session.get("maxduration")
+            try:
+                maximum_duration = int(float(raw_maximum)) if raw_maximum is not None else None
+            except (TypeError, ValueError, OverflowError):
+                maximum_duration = None
+            unlimited_maximum = maximum_duration == 0
             try:
                 end_timestamp = int(float(session.get("enddate")))
+                remaining = end_timestamp - int(time.time())
             except (TypeError, ValueError, OverflowError):
-                await interaction.response.send_message(
-                    "EmlaLock did not provide a valid session end date, so no random change can be made.", ephemeral=True)
-                return
-            if end_timestamp <= int(time.time()):
-                await interaction.response.send_message(
-                    "Your session has no remaining time to use as the random limit.", ephemeral=True)
-                return
+                end_timestamp = None
+                remaining = 0
+            if unlimited_maximum:
+                if remaining < 1:
+                    try:
+                        remaining = int(float(session.get("duration")))
+                    except (TypeError, ValueError, OverflowError):
+                        remaining = 0
+                if remaining < 1:
+                    await interaction.response.send_message(
+                        "EmlaLock did not provide a usable current duration for the random subtraction option.", ephemeral=True)
+                    return
+                range_description = (
+                    f"add between **1 second and {MAX_UNLIMITED_RANDOM_SECONDS:,} seconds** "
+                    "(about 68 years), or subtract up to the currently remaining session time"
+                )
+            else:
+                if end_timestamp is None:
+                    await interaction.response.send_message(
+                        "EmlaLock did not provide a valid session end date or maximum-duration setting.", ephemeral=True)
+                    return
+                if remaining < 1:
+                    await interaction.response.send_message(
+                        "Your session has no remaining time to use as the random limit.", ephemeral=True)
+                    return
+                range_description = f"add or subtract between **1 second and {remaining} seconds**"
             session_id = str(session.get("chastitysessionid") or "")
-            remaining = end_timestamp - int(time.time())
         except (EmlaLockError, ValueError, TypeError) as exc:
             await interaction.response.send_message(f"Could not verify your active session: {exc}", ephemeral=True)
             return
@@ -1072,8 +1136,7 @@ class AccountCommands(commands.Cog):
             self.bot, interaction.user.id, "randomtime", 0,
             expected_session_id=session_id)
         await interaction.response.send_message(
-            f"Please confirm your **one daily random time change**. The bot will randomly choose to add or subtract "
-            f"between **1 second and {remaining} seconds** (the time remaining until your current session end date). "
+            f"Please confirm your **one daily random time change**. The bot will randomly choose to {range_description}. "
             "A linked keyholder account is required for either outcome. The session, keyholder and daily limit "
             "will be checked again when you confirm. Daily use resets at 00:00 UTC.",
             view=view, ephemeral=True)
