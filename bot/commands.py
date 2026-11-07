@@ -711,10 +711,8 @@ class AccountCommands(commands.Cog):
         try:
             data = await api.info(account["emlalock_user_id"], account["api_key"])
             session = data.get("chastitysession")
-            # A session returned by this account's own /info belongs in the
-            # commands channel. Sessions discovered for linked wearers belong
-            # in the dedicated session-updates channel.
-            result_channel = "commands" if session else "sessions"
+            # All /session lookup results belong in the commands channel.
+            result_channel = "commands"
             own_user = data.get("user") or {}
             own_id = account["emlalock_user_id"]
 
