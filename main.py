@@ -40,7 +40,21 @@ class EmlaLockBot(commands.Bot):
                 if not account:
                     await message.reply("Use /link to securely connect your EmlaLock account first.")
                     return
-                view = ConfirmTimeView(self, message.author.id, "add", seconds)
+                api = EmlaLockClient(self.settings.emlalock_api_base_url)
+                try:
+                    info = await api.info(account["emlalock_user_id"], account["api_key"])
+                    session = info.get("chastitysession") or {}
+                    if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != account["emlalock_user_id"]:
+                        await message.reply("Your linked account does not have an active wearer session.")
+                        return
+                    session_id = str(session.get("chastitysessionid", ""))
+                except EmlaLockError as exc:
+                    await message.reply(str(exc))
+                    return
+                finally:
+                    await api.close()
+                view = ConfirmTimeView(self, message.author.id, "add", seconds,
+                                       expected_session_id=session_id)
                 try:
                     await message.author.send(
                         f"Please confirm: add {message.content.strip()} to your linked active session? "
@@ -101,6 +115,7 @@ class EmlaLockBot(commands.Bot):
                     if int(session.get("status", 0)) != 1 or str(session.get("holderid")) != actor["emlalock_user_id"]:
                         await message.reply("EmlaLock does not show you as the holder of that active session.")
                         return
+                    session_id = str(session.get("chastitysessionid", ""))
                 except EmlaLockError as exc:
                     await message.reply(str(exc))
                     return
@@ -111,7 +126,7 @@ class EmlaLockBot(commands.Bot):
                     await message.reply("Use /link to securely connect your EmlaLock account first.")
                     return
 
-            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id)
+            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id,\n                                   session_id if operation == "subtract" else None)
             try:
                 target_text = "your linked active session" if operation == "add" else f"<@{target_id}>'s session"
                 await message.author.send(
