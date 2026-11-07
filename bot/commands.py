@@ -1056,7 +1056,7 @@ class AccountCommands(commands.Cog):
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.send_message(
             "**EmlaLock assistant**\n/link — privately connect your account\n"
-            "/session — view your current session\n/friendlink — post your session Friend Link\n/add duration — confirm adding time to your own session\n"
+            "/session — view your current session\n/friendlink — post your own wearer session Friend Link\n/friendlink_for @wearer — keyholder posts a linked wearer's Friend Link\n/add duration — confirm adding time to your own session\n"
             "/subtract wearer duration — holder-authorized subtraction\n"
             "/setuproles and /syncroles — configure and synchronize server roles\n"
             "/unlink — disconnect your account\n\n"
