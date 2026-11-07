@@ -41,6 +41,12 @@ class EmlaLockBot(commands.Bot):
         # command definitions to this guild.
         self.tree.clear_commands(guild=guild)
         self.tree.copy_global_to(guild=guild)
+        # Hide one-time setup commands after their corresponding configuration
+        # has been saved for this server. Other servers retain their own setup state.
+        if self.storage.get_guild_roles(guild.id):
+            self.tree.remove_command("setuproles", guild=guild)
+        if self.storage.get_adoption_roles(guild.id):
+            self.tree.remove_command("setupadoption", guild=guild)
         synced = await self.tree.sync(guild=guild)
         logging.info("Published %d application commands to %s (%s)",
                      len(synced), guild.name, guild.id)
