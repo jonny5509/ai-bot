@@ -67,7 +67,8 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
 
 class ConfirmTimeView(discord.ui.View):
     def __init__(self, bot, actor_id: int, operation: str, seconds: int,
-                 target_id: int | None = None, expected_session_id: str | None = None):
+                 target_id: int | None = None, expected_session_id: str | None = None,
+                 random_from: int | None = None, random_to: int | None = None):
         super().__init__(timeout=90)
         self.bot = bot
         self.actor_id = actor_id
@@ -75,6 +76,8 @@ class ConfirmTimeView(discord.ui.View):
         self.seconds = seconds
         self.target_id = target_id
         self.expected_session_id = expected_session_id
+        self.random_from = random_from
+        self.random_to = random_to
         self.completed = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -93,11 +96,31 @@ class ConfirmTimeView(discord.ui.View):
         self.cancel_button.disabled = True
         await interaction.response.edit_message(content="Checking permissions and applying the change…", view=self)
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        random_claimed = False
+        random_applied = False
         try:
             actor = self.bot.storage.get_account(self.actor_id)
             if not actor:
                 raise EmlaLockError("Your EmlaLock account is no longer linked.")
-            if self.operation == "add":
+            if self.operation == "randomadd":
+                target = actor
+                if self.random_from is None or self.random_to is None:
+                    raise EmlaLockError("The random time range is missing. Please submit the command again.")
+                fresh = await api.info(target["emlalock_user_id"], target["api_key"])
+                session = fresh.get("chastitysession") or {}
+                if (int(session.get("status", 0)) != 1
+                        or str(session.get("wearerid")) != str(target["emlalock_user_id"])):
+                    raise EmlaLockError("Random time can only be used on your own active wearer session.")
+                if self.expected_session_id and str(session.get("chastitysessionid")) != self.expected_session_id:
+                    raise EmlaLockError("Your session changed after the request. Please submit it again.")
+                if not self.bot.storage.claim_daily_random_add(target["emlalock_user_id"]):
+                    raise EmlaLockError("You have already used your daily random time change. You can use it again after 00:00 UTC.")
+                random_claimed = True
+                result = await api.add_random_time(
+                    target["emlalock_user_id"], target["api_key"],
+                    self.random_from, self.random_to, "Discord daily random time")
+                random_applied = True
+            elif self.operation == "add":
                 target = actor if self.target_id is None else self.bot.storage.get_account(self.target_id)
                 if not target:
                     raise EmlaLockError("The selected wearer has not linked an EmlaLock account.")
@@ -144,8 +167,12 @@ class ConfirmTimeView(discord.ui.View):
                 content=f"Change applied successfully. Session: {session_id}.", view=self)
             await self._post_change_notification(interaction, actor, target, updated_session, session_id)
         except (EmlaLockError, ValueError) as exc:
+            if random_claimed and not random_applied:
+                self.bot.storage.release_daily_random_add(actor["emlalock_user_id"])
             await interaction.edit_original_response(content=f"No change was confirmed by the API: {exc}", view=self)
         except Exception:
+            if random_claimed and not random_applied:
+                self.bot.storage.release_daily_random_add(actor["emlalock_user_id"])
             await interaction.edit_original_response(
                 content="Something went wrong. Check the bot logs; credentials are not included in error messages.", view=self)
         finally:
@@ -187,11 +214,19 @@ class ConfirmTimeView(discord.ui.View):
             holder = self.bot.storage.get_account_by_emlalock_id(holder_id) if holder_id else None
         wearer_text = f"<@{int(wearer['discord_user_id'])}>" if wearer else "Unlinked wearer"
         holder_text = f"<@{int(holder['discord_user_id'])}>" if holder else "Unlinked keyholder"
-        action = "added" if self.operation == "add" else "subtracted"
+        action = ("randomly added" if self.operation == "randomadd"
+                  else "added" if self.operation == "add" else "subtracted")
         hours, remainder = divmod(self.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         parts = ([f"{hours}h"] if hours else []) + ([f"{minutes}m"] if minutes else []) + ([f"{seconds}s"] if seconds else [])
         duration = " ".join(parts) or "0s"
+        if self.operation == "randomadd":
+            def short_duration(total):
+                hours, remainder = divmod(total, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                pieces = ([f"{hours}h"] if hours else []) + ([f"{minutes}m"] if minutes else []) + ([f"{seconds}s"] if seconds else [])
+                return " ".join(pieces) or "0s"
+            duration = f"between {short_duration(self.random_from)} and {short_duration(self.random_to)}"
         from datetime import datetime, timezone
         import time
         try:
@@ -965,6 +1000,65 @@ class AccountCommands(commands.Cog):
         await interaction.response.send_message(
             f"Please confirm: **Add {duration}** to **{target_label}** (session **{session_id}**)? "
             "The active session and keyholder permission will be checked again before applying.",
+            view=view, ephemeral=True)
+
+    @app_commands.command(name="randomadd", description="Use your daily random time increase on your own session")
+    @app_commands.describe(
+        minimum="Smallest possible amount of time to add",
+        maximum="Largest possible amount of time to add",
+        unit="Time unit for the minimum and maximum")
+    @app_commands.choices(unit=[
+        app_commands.Choice(name="Minutes", value="minutes"),
+        app_commands.Choice(name="Hours", value="hours"),
+        app_commands.Choice(name="Days", value="days"),
+        app_commands.Choice(name="Weeks", value="weeks"),
+    ])
+    async def randomadd(self, interaction: discord.Interaction,
+                        minimum: app_commands.Range[int, 1, 100000],
+                        maximum: app_commands.Range[int, 1, 100000],
+                        unit: app_commands.Choice[str]):
+        account = self.bot.storage.get_account(interaction.user.id)
+        if not account:
+            await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
+            return
+        try:
+            from_seconds = parse_duration(f"{minimum} {unit.value}")
+            to_seconds = parse_duration(f"{maximum} {unit.value}")
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        if from_seconds > to_seconds:
+            await interaction.response.send_message("The minimum must be less than or equal to the maximum.", ephemeral=True)
+            return
+        if self.bot.storage.daily_random_add_used(account["emlalock_user_id"]):
+            await interaction.response.send_message(
+                "You have already used your daily random time change. You can use it again after 00:00 UTC.",
+                ephemeral=True)
+            return
+
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        try:
+            data = await api.info(account["emlalock_user_id"], account["api_key"])
+            session = data.get("chastitysession") or {}
+            if (int(session.get("status", 0)) != 1
+                    or str(session.get("wearerid")) != str(account["emlalock_user_id"])):
+                await interaction.response.send_message(
+                    "Random time can only be used on your own active wearer session.", ephemeral=True)
+                return
+            session_id = str(session.get("chastitysessionid") or "")
+        except (EmlaLockError, ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"Could not verify your active session: {exc}", ephemeral=True)
+            return
+        finally:
+            await api.close()
+
+        view = ConfirmTimeView(
+            self.bot, interaction.user.id, "randomadd", 0,
+            expected_session_id=session_id, random_from=from_seconds, random_to=to_seconds)
+        await interaction.response.send_message(
+            f"Please confirm your **one daily random time increase**. EmlaLock will randomly add "
+            f"between **{minimum} {unit.value}** and **{maximum} {unit.value}** to your own active session. "
+            "The session and daily limit will be checked again when you confirm. Daily use resets at 00:00 UTC.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
