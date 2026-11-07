@@ -83,6 +83,15 @@ The setup wizard intentionally listens only on `127.0.0.1`; it is not a public h
 
 After creating `.env`, run `docker compose up -d --build`. Docker Compose keeps the SQLite database in a named volume. Back up that volume and the `CREDENTIAL_ENCRYPTION_KEY` together.
 
+## Updating on Windows
+
+1. Stop the bot with Ctrl+C.
+2. Open the bot's main folder (the folder containing `main.py`).
+3. Double-click `update.bat`.
+4. When it finishes, restart the bot with `python main.py`.
+
+The updater downloads the latest `main` branch from GitHub. It leaves `.env`, local database files, virtual environments, and Git metadata untouched. If dependencies changed, it prints the command to install them. Back up your folder before updating as a precaution.
+
 ## Commands
 
 | Command | Purpose |
