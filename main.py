@@ -12,6 +12,29 @@ from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
 
 
+
+class DiscordLogHandler(logging.Handler):
+    def __init__(self, bot):
+        super().__init__(level=logging.WARNING)
+        self.bot = bot
+
+    def emit(self, record):
+        if not self.bot.is_ready():
+            return
+        message = self.format(record)
+        for guild in self.bot.guilds:
+            channel_id = self.bot.storage.get_guild_channel(guild.id, "logs")
+            channel = guild.get_channel(channel_id) if channel_id else None
+            if channel is not None:
+                self.bot.loop.create_task(self._send(channel, message))
+
+    async def _send(self, channel, message):
+        try:
+            await channel.send("LOG: " + message[:1800])
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+
 class EmlaLockBot(commands.Bot):
     def __init__(self, settings):
         intents = discord.Intents.default()
@@ -23,6 +46,8 @@ class EmlaLockBot(commands.Bot):
         self.intent_detector = IntentDetector(settings.openai_api_key, settings.openai_model)
         self.pending_actions = {}
         self._guild_commands_synced = False
+        self._discord_log_handler = DiscordLogHandler(self)
+        self._discord_log_handler.setFormatter(logging.Formatter('%(levelname)s %(name)s: %(message)s'))
 
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
@@ -52,6 +77,8 @@ class EmlaLockBot(commands.Bot):
                      len(synced), guild.name, guild.id)
 
     async def on_ready(self):
+        if self._discord_log_handler not in logging.getLogger().handlers:
+            logging.getLogger().addHandler(self._discord_log_handler)
         # Remove any previously published global commands so Discord has one
         # guild-scoped copy per server, not global + guild duplicates.
         if self.application_id:
