@@ -223,7 +223,8 @@ class AccountCommands(commands.Cog):
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
     @app_commands.checks.has_permissions(manage_roles=True)
-    async def setuproles(self, interaction: discord.Interaction, wearer_role_name: str = "Wearer",\n                         keyholder_role_name: str = "Keyholder", dual_role_name: str = "Dual Role"):
+    async def setuproles(self, interaction: discord.Interaction, wearer_role_name: str = "Wearer",
+                         keyholder_role_name: str = "Keyholder", dual_role_name: str = "Dual Role"):
         if not interaction.guild:
             await interaction.response.send_message("Use this in a server.", ephemeral=True)
             return
