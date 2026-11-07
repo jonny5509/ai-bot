@@ -379,6 +379,29 @@ class AccountCommands(commands.Cog):
         finally:
             await api.close()
 
+        # Remove this bot's Friend Link posts once the wearer account has
+        # been successfully checked and the corresponding session is no longer active.
+        active_session_ids = {
+            str(session.get("chastitysessionid") or "")
+            for session in active_sessions
+            if session.get("chastitysessionid")
+        }
+        ended_posts = self.bot.storage.list_ended_friendlink_messages(
+            guild.id, active_session_ids, {str(uid) for uid in verified_user_ids})
+        for post in ended_posts:
+            try:
+                channel = guild.get_channel(int(post["channel_id"]))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(post["channel_id"]))
+                message = await channel.fetch_message(int(post["message_id"]))
+                await message.delete()
+                self.bot.storage.delete_friendlink_message_record(int(post["message_id"]))
+            except discord.NotFound:
+                self.bot.storage.delete_friendlink_message_record(int(post["message_id"]))
+            except (discord.Forbidden, discord.HTTPException):
+                # Keep the record so a later sync can retry when permissions recover.
+                continue
+
         # Keep linked members' server nicknames aligned with their verified
         # EmlaLock usernames, even when session roles have not been configured.
         member_by_id = {member.id: member for member in members}
@@ -577,8 +600,12 @@ class AccountCommands(commands.Cog):
 
             if not interaction.channel or not hasattr(interaction.channel, "send"):
                 raise EmlaLockError("I can't post a Friend Link in this channel.")
-            await interaction.channel.send(
+            posted = await interaction.channel.send(
                 message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            if interaction.guild:
+                self.bot.storage.save_friendlink_message(
+                    interaction.guild.id, interaction.channel.id, posted.id,
+                    session_id, str(session.get("wearerid") or target["emlalock_user_id"]))
             await interaction.followup.send("Your Friend Link message has been posted in this channel.", ephemeral=True)
         except (EmlaLockError, ValueError, TypeError) as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
