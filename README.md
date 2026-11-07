@@ -15,7 +15,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - `/add duration` for the linked user's own active wearer session.
 - `/subtract @wearer duration` when the caller's linked EmlaLock account is the holder of the target's active session. The official API holder key parameter is used.
 - Re-checks session status and holder/wearer relationship immediately before a mutation.
-- `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Only those bot-managed roles are changed.
+- `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
 - `/unlink` to disconnect an account.
 
 ## Important API limitations
@@ -116,4 +116,4 @@ You can also mention the bot in a channel, for example `@Bot add 2 hours` or `@B
 - Do not share API keys in public channels. Use the private `/link` modal.
 - Never commit `.env`, SQLite databases, or encryption keys.
 - Run the bot on a trusted host with persistent storage and restrict access to its data directory.
-- Role synchronization is manual via `/syncroles`; automatic periodic monitoring is not configured.
+- Role synchronization runs automatically every 5 minutes after `/setuproles`, immediately after linking in a server, and when a member joins. `/syncroles` remains available for an immediate manual refresh. The bot needs Server Members Intent, Manage Roles permission, and its highest role positioned above the three managed roles.
