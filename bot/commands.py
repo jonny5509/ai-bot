@@ -186,9 +186,12 @@ class AccountCommands(commands.Cog):
             holder_name = await display_name(session.get("holderid"))
             duration = session.get("duration", "unknown")
             try:
-                duration_display = f"{int(duration) // 3600} hours"
+                total_seconds = max(0, int(duration))
+                hours, remainder = divmod(total_seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                duration_display = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             except (TypeError, ValueError):
-                duration_display = f"{duration} seconds"
+                duration_display = str(duration)
 
             await interaction.followup.send(
                 f"**Session:** {session.get('chastitysessionid', 'unknown')}\n"
