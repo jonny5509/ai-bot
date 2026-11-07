@@ -1143,6 +1143,16 @@ class AccountCommands(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
 
+        bot_member = guild.me
+        if bot_member is None or not bot_member.guild_permissions.manage_channels:
+            await interaction.followup.send(
+                "I do not currently have **Manage Channels** in this server. "
+                "Please check the bot's server role permissions (not just your own permissions), "
+                "then run /setupchannels again.",
+                ephemeral=True,
+            )
+            return
+
         channel_names = {
             "commands": "bot-commands",
             "sessions": "session-updates",
@@ -1202,17 +1212,20 @@ class AccountCommands(commands.Cog):
                 + "\n".join(lines) + f"\n{created_note}",
                 ephemeral=True,
             )
-        except discord.Forbidden:
+        except discord.Forbidden as exc:
+            logging.exception("Discord denied EmlaLock category/channel creation.")
             await interaction.followup.send(
-                "I need the **Manage Channels** permission to create the EmlaLock category and missing channels. "
-                "Grant that permission and run /setupchannels again.",
+                "Discord denied the channel-creation request (Forbidden). Confirm the bot itself has "
+                "**Manage Channels** and that no server policy or integration restriction blocks it. "
+                "Run /setupchannels again after fixing permissions.",
                 ephemeral=True,
             )
-        except discord.HTTPException:
+        except discord.HTTPException as exc:
             logging.exception("Could not create or configure the EmlaLock channels.")
+            detail = f"Discord API error: HTTP {getattr(exc, 'status', 'unknown')}, code {getattr(exc, 'code', 'unknown')}: {str(exc)[:500]}"
             await interaction.followup.send(
-                "Discord couldn't create or configure the channels. Check the bot's Manage Channels permission "
-                "and try again.",
+                "Discord could not complete channel setup. " + detail +
+                " Any channels already created will be reused next time; run /setupchannels again after resolving the error.",
                 ephemeral=True,
             )
 
