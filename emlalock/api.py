@@ -45,6 +45,18 @@ class EmlaLockClient:
             params["text"] = text[:49]
         return await self._get("/add", params)
 
+    async def add_random_time(self, user_id: str, api_key: str,
+                              from_seconds: int, to_seconds: int, text: str = "") -> dict:
+        if from_seconds <= 0 or to_seconds <= 0 or from_seconds > to_seconds:
+            raise ValueError("The random time range must be positive and the minimum cannot exceed the maximum.")
+        params = {
+            "userid": user_id, "apikey": api_key,
+            "from": from_seconds, "to": to_seconds,
+        }
+        if text:
+            params["text"] = text[:49]
+        return await self._get("/addrandom", params)
+
     async def subtract_time(self, wearer_user_id: str, wearer_api_key: str,
                             holder_api_key: str, seconds: int, text: str = "") -> dict:
         if seconds <= 0:
