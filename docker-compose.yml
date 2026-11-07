@@ -1,0 +1,12 @@
+services:
+  emlalock-ai-bot:
+    build: .
+    container_name: emlalock-ai-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - emlalock_data:/app/data
+
+volumes:
+  emlalock_data:
