@@ -20,7 +20,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
 - `/setupadoption` creates automatic **Looking for Keyholder** and **Looking for Wearer** roles. A linked wearer with an active session and no holder receives Looking for Keyholder; a linked holder whose active session has no wearer receives Looking for Wearer.
 - `/adoptionpanel` posts persistent buttons to find someone with the opposite adoption role.
-- `/setupchannels` lets administrators select separate bot-command, session-update, adoption, Friend Link and log channels. Set `create_emlalock_category` to true to create/reuse an **EmlaLock** category with all five channels automatically. Slash commands and bot mentions are restricted to the configured bot-command channel. Session announcements, adoption panels and Friend Link posts use their configured destinations. Warning and error logs are forwarded to the configured log channel.
+- `/setupchannels` automatically creates or reuses an **EmlaLock** category and all five channels (`#bot-commands`, `#session-updates`, `#adoption`, `#friend-links`, and `#bot-logs`) whenever they are missing. Administrators can optionally override individual destinations with existing channels. Slash commands and bot mentions are restricted to the configured bot-command channel. Session announcements, adoption panels and Friend Link posts use their configured destinations. Warning and error logs are forwarded to the configured log channel.
 - `/unlink` to disconnect an account.
 
 ## Important API limitations
@@ -107,7 +107,7 @@ The updater downloads the latest `main` branch from GitHub. It leaves `.env`, lo
 | `/session` | View your current session privately |\n| `/friendlink` | Post your own wearer-session Friend Link |\n| `/friendlink_for @wearer` | Keyholder posts a linked wearer's Friend Link when permitted |
 | `/add 2 hours` | Request adding time to your own session |
 | `/subtract @member 30 minutes` | Request holder-authorized subtraction |
-| `/setupchannels` | Set `create_emlalock_category: true` to create an EmlaLock category and its five channels, or supply individual channel options |
+| `/setupchannels` | Automatically create/reuse the EmlaLock category and any missing bot channels; optional channel parameters override destinations |
 | `/setuproles` | Create the three managed session roles |
 | `/syncroles` | Synchronize roles for linked members |
 | `/setupadoption` | Create automatic adoption matching roles |
