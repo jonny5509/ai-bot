@@ -127,10 +127,21 @@ class ConfirmTimeView(discord.ui.View):
                 result = await api.subtract_time(target["emlalock_user_id"], target["api_key"],
                                                  actor["api_key"], self.seconds, "Discord assistant")
             session_result = result.get("chastitysession") or {}
-            session_id = session_result.get("chastitysessionid", "confirmed")
+            session_id = session_result.get("chastitysessionid", session.get("chastitysessionid", "confirmed"))
+            # Re-read the session after the successful change: add/sub responses
+            # do not consistently include the updated end date.
+            updated_session = session_result
+            try:
+                updated_info = await api.info(target["emlalock_user_id"], target["api_key"])
+                refreshed_session = updated_info.get("chastitysession") or {}
+                if refreshed_session:
+                    updated_session = refreshed_session
+                    session_id = refreshed_session.get("chastitysessionid", session_id)
+            except EmlaLockError:
+                logging.exception("Time change succeeded, but updated session details could not be fetched for the announcement.")
             await interaction.edit_original_response(
                 content=f"Change applied successfully. Session: {session_id}.", view=self)
-            await self._post_change_notification(interaction, actor, target, session, session_id)
+            await self._post_change_notification(interaction, actor, target, updated_session, session_id)
         except (EmlaLockError, ValueError) as exc:
             await interaction.edit_original_response(content=f"No change was confirmed by the API: {exc}", view=self)
         except Exception:
@@ -179,12 +190,28 @@ class ConfirmTimeView(discord.ui.View):
         minutes, seconds = divmod(remainder, 60)
         parts = ([f"{hours}h"] if hours else []) + ([f"{minutes}m"] if minutes else []) + ([f"{seconds}s"] if seconds else [])
         duration = " ".join(parts) or "0s"
+        from datetime import datetime, timezone
+        import time
+        try:
+            end_timestamp = int(float(session.get("enddate")))
+            if end_timestamp <= 0:
+                raise ValueError("Invalid end date")
+            remaining_seconds = max(0, end_timestamp - int(time.time()))
+            remaining_hours, remaining_remainder = divmod(remaining_seconds, 3600)
+            remaining_minutes, remaining_seconds = divmod(remaining_remainder, 60)
+            new_remaining = f"{remaining_hours:02d}:{remaining_minutes:02d}:{remaining_seconds:02d}"
+            new_end_time = datetime.fromtimestamp(end_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except (TypeError, ValueError, OverflowError, OSError):
+            new_remaining = "Unavailable"
+            new_end_time = "Unavailable"
         message = (
             f"**EmlaLock time change confirmed**\n"
             f"Wearer: {wearer_text}\n"
             f"Keyholder: {holder_text}\n"
-            f"Action: {discord.utils.escape_markdown(interaction.user.display_name)} {action} **{duration}**."
-            f"\nSession: **{discord.utils.escape_markdown(str(session_id))}**"
+            f"Action: {discord.utils.escape_markdown(interaction.user.display_name)} {action} **{duration}**.\n"
+            f"**New time remaining:** {new_remaining}\n"
+            f"**New end time:** {new_end_time}\n"
+            f"Session: **{discord.utils.escape_markdown(str(session_id))}**"
         )
         try:
             await channel.send(message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
