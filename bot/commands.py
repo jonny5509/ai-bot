@@ -711,6 +711,10 @@ class AccountCommands(commands.Cog):
         try:
             data = await api.info(account["emlalock_user_id"], account["api_key"])
             session = data.get("chastitysession")
+            # A session returned by this account's own /info belongs in the
+            # commands channel. Sessions discovered for linked wearers belong
+            # in the dedicated session-updates channel.
+            result_channel = "commands" if session else "sessions"
             own_user = data.get("user") or {}
             own_id = account["emlalock_user_id"]
 
@@ -841,7 +845,7 @@ class AccountCommands(commands.Cog):
                 f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\n"
                 f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}"
             )
-            if not await self._post_channel_result(interaction, "sessions", session_message):
+            if not await self._post_channel_result(interaction, result_channel, session_message):
                 await interaction.followup.send(
                     "The session channel is not configured. Run /setupchannels first.", ephemeral=True)
         except EmlaLockError as exc:
