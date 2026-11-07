@@ -21,7 +21,7 @@ class DiscordLogHandler(logging.Handler):
     def emit(self, record):
         if not self.bot.is_ready():
             return
-        message = re.sub(r"([?&](?:userid|apikey|holderapikey)=)[^&\s"'<>]*", r"\1[REDACTED]", self.format(record), flags=re.IGNORECASE)
+        message = re.sub(r"([?&](?:userid|apikey|holderapikey)=)[^&\s\"\'<>]*", r"\1[REDACTED]", self.format(record), flags=re.IGNORECASE)
         for guild in self.bot.guilds:
             channel_id = self.bot.storage.get_guild_channel(guild.id, "logs")
             channel = guild.get_channel(channel_id) if channel_id else None
