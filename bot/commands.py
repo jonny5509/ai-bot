@@ -22,7 +22,7 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
         user_id = str(self.emlalock_user_id.value).strip()
         key = str(self.api_key.value).strip()
         await interaction.response.defer(ephemeral=True, thinking=True)
-        api = EmlaLockClient()
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
             result = await api.info(user_id, key)
             returned_id = str(result.get("user", {}).get("userid", ""))
@@ -65,7 +65,7 @@ class ConfirmTimeView(discord.ui.View):
         button.disabled = True
         self.cancel_button.disabled = True
         await interaction.response.edit_message(content="Checking permissions and applying the change…", view=self)
-        api = EmlaLockClient()
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
             actor = self.bot.storage.get_account(self.actor_id)
             if not actor:
@@ -143,7 +143,7 @@ class AccountCommands(commands.Cog):
             await interaction.response.send_message("Use /link first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        api = EmlaLockClient()
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
             data = await api.info(account["emlalock_user_id"], account["api_key"])
             session = data.get("chastitysession")
@@ -197,7 +197,7 @@ class AccountCommands(commands.Cog):
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
-        api = EmlaLockClient()
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
             data = await api.info(target["emlalock_user_id"], target["api_key"])
             session = data.get("chastitysession") or {}
@@ -254,7 +254,7 @@ class AccountCommands(commands.Cog):
         members = [m async for m in guild.fetch_members(limit=None)]
         accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
         linked = {a["discord_user_id"]: a for a in accounts}
-        api = EmlaLockClient()
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         active_sessions = []
         try:
             for account in accounts:
