@@ -37,17 +37,24 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
                 await interaction.followup.send(str(exc), ephemeral=True)
                 return
             role_note = ""
+            emlalock_username = str(result.get("user", {}).get("username") or "").strip()
             if interaction.guild:
                 cog = self.bot.get_cog("AccountCommands")
                 if cog:
                     try:
+                        member = interaction.guild.get_member(interaction.user.id)
+                        if member and emlalock_username:
+                            await cog.sync_member_nickname(member, emlalock_username)
+                            role_note += f" Your server nickname is synced to {discord.utils.escape_markdown(emlalock_username[:32])}."
                         updated, failed = await cog.sync_guild_roles(interaction.guild)
-                        role_note = f" Session roles checked: {updated} member(s) updated"
+                        role_note += f" Session roles checked: {updated} member(s) updated"
                         if failed:
                             role_note += f"; {failed} failed"
                         role_note += "."
+                    except discord.Forbidden:
+                        role_note += " I couldn't change your nickname; check the bot's Manage Nicknames permission and role position."
                     except Exception:
-                        role_note = " Automatic role sync could not complete; an admin can run /syncroles."
+                        role_note += " Automatic nickname or role sync could not complete; an admin can check bot permissions."
             await interaction.followup.send(
                 f"Your EmlaLock account ({result['user'].get('username', 'verified')}) is now linked. "
                 "Your API key is encrypted in the bot database." + role_note, ephemeral=True)
@@ -289,27 +296,54 @@ class AccountCommands(commands.Cog):
             except Exception:
                 pass
 
+    async def sync_member_nickname(self, member: discord.Member, emlalock_username: str) -> bool:
+        # Discord nicknames are limited to 32 characters. Do not alter a member's
+        # nickname when EmlaLock has not supplied a usable username.
+        desired = emlalock_username.strip()[:32]
+        if not desired or member.nick == desired:
+            return False
+        await member.edit(nick=desired, reason="EmlaLock username synchronization")
+        return True
+
     async def sync_guild_roles(self, guild: discord.Guild) -> tuple[int, int]:
         settings = self.bot.storage.get_guild_roles(guild.id)
-        if not settings:
-            return (0, 0)
         members = [m async for m in guild.fetch_members(limit=None)]
         accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         active_sessions = []
         verified_user_ids = set()
+        usernames = {}
         try:
             for account in accounts:
                 try:
                     data = await api.info(account["emlalock_user_id"], account["api_key"])
                     verified_user_ids.add(account["emlalock_user_id"])
+                    username = str((data.get("user") or {}).get("username") or "").strip()
+                    if username:
+                        usernames[int(account["discord_user_id"])] = username
                     session = data.get("chastitysession") or {}
                     if int(session.get("status", 0)) == 1:
                         active_sessions.append(session)
-                except EmlaLockError:
+                except (EmlaLockError, ValueError, TypeError):
                     continue
         finally:
             await api.close()
+
+        # Keep linked members' server nicknames aligned with their verified
+        # EmlaLock usernames, even when session roles have not been configured.
+        member_by_id = {member.id: member for member in members}
+        for discord_user_id, username in usernames.items():
+            member = member_by_id.get(discord_user_id)
+            if member:
+                try:
+                    await self.sync_member_nickname(member, username)
+                except discord.Forbidden:
+                    logging.warning("Could not sync a linked member's nickname; check Manage Nicknames and role hierarchy.")
+                except discord.HTTPException:
+                    logging.warning("Discord rejected a linked member nickname update.")
+
+        if not settings:
+            return (0, 0)
 
         role_ids = {
             "wearer": int(settings["wearer_role_id"]),
