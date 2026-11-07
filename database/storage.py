@@ -36,11 +36,15 @@ class Storage:
                 preferences_json TEXT NOT NULL DEFAULT '{}'
             )""")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(guild_settings)").fetchall()}
+            if "notification_channel_id" not in columns:
+                db.execute("ALTER TABLE guild_settings ADD COLUMN notification_channel_id TEXT")
             db.execute("""CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id TEXT PRIMARY KEY,
                 wearer_role_id TEXT,
                 keyholder_role_id TEXT,
-                dual_role_id TEXT
+                dual_role_id TEXT,
+                notification_channel_id TEXT
             )""")
 
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
@@ -114,3 +118,12 @@ class Storage:
             row = db.execute("SELECT * FROM guild_settings WHERE guild_id=?",
                              (str(guild_id),)).fetchone()
         return dict(row) if row else None
+
+    def set_notification_channel(self, guild_id: int, channel_id: int | None):
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO guild_settings(guild_id, notification_channel_id)
+                   VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET
+                   notification_channel_id=excluded.notification_channel_id""",
+                (str(guild_id), str(channel_id) if channel_id is not None else None),
+            )
