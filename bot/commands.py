@@ -153,10 +153,20 @@ class ConfirmTimeView(discord.ui.View):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 logging.warning("Could not access the configured time-change notification channel.")
                 return
-        wearer = self.bot.storage.get_account_by_emlalock_id(target["emlalock_user_id"])
-        holder = self.bot.storage.get_account_by_emlalock_id(str(session.get("holderid", "")))
-        wearer_text = f"<@{wearer['discord_user_id']}>" if wearer else "Unlinked wearer"
-        holder_text = f"<@{holder['discord_user_id']}>" if holder else "Unlinked keyholder"
+        # The selected target is already the verified linked wearer account. Use it
+        # directly instead of performing a second database lookup that can fail
+        # when EmlaLock formats the same ID differently.
+        wearer = target
+        holder_id = str(session.get("holderid") or "").strip()
+        actor_emlalock_id = str(actor.get("emlalock_user_id") or "").strip()
+        # When the person confirming the change is the session holder, their
+        # already-verified linked account is the most reliable Discord mapping.
+        if holder_id and actor_emlalock_id == holder_id:
+            holder = actor
+        else:
+            holder = self.bot.storage.get_account_by_emlalock_id(holder_id) if holder_id else None
+        wearer_text = f"<@{int(wearer['discord_user_id'])}>" if wearer else "Unlinked wearer"
+        holder_text = f"<@{int(holder['discord_user_id'])}>" if holder else "Unlinked keyholder"
         action = "added" if self.operation == "add" else "subtracted"
         hours, remainder = divmod(self.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
