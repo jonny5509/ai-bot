@@ -30,28 +30,45 @@ class EmlaLockBot(commands.Bot):
         self.add_view(AdoptionPanelView(self))
         self.add_dynamic_items(AdoptionDecisionButton)
 
-        # Keep commands global only. Publishing guild copies as well makes
-        # Discord show duplicate entries for the same slash commands.
-        synced = await self.tree.sync()
-        logging.info("Refreshed %d global application commands", len(synced))
+        # Register commands per server for immediate availability. Global
+        # commands can take a long time to propagate and can appear alongside
+        # older guild-scoped copies as duplicates.
+        logging.info("Loaded %d application commands for guild synchronization",
+                     len(self.tree.get_commands()))
+
+    async def _sync_guild_commands(self, guild: discord.Guild):
+        # Remove stale guild commands, then publish exactly the current local
+        # command definitions to this guild.
+        self.tree.clear_commands(guild=guild)
+        self.tree.copy_global_to(guild=guild)
+        synced = await self.tree.sync(guild=guild)
+        logging.info("Published %d application commands to %s (%s)",
+                     len(synced), guild.name, guild.id)
 
     async def on_ready(self):
-        # on_ready can fire again after a reconnect; only run this once per process.
+        # Remove any previously published global commands so Discord has one
+        # guild-scoped copy per server, not global + guild duplicates.
+        if self.application_id:
+            try:
+                await self.http.bulk_upsert_global_commands(self.application_id, [])
+                logging.info("Removed legacy global application commands")
+            except discord.HTTPException:
+                logging.exception("Could not remove legacy global application commands")
+
         if self._guild_commands_synced:
             return
         self._guild_commands_synced = True
         for guild in self.guilds:
             try:
-                # Remove any legacy guild-scoped copies. Commands are
-                # registered globally only, so do not copy them back here.
-                self.tree.clear_commands(guild=guild)
-                await self.tree.sync(guild=guild)
-                logging.info(
-                    "Removed legacy guild-scoped commands for %s (%s)",
-                    guild.name, guild.id,
-                )
+                await self._sync_guild_commands(guild)
             except discord.HTTPException:
                 logging.exception("Could not refresh application commands for guild %s (%s)", guild.name, guild.id)
+
+    async def on_guild_join(self, guild: discord.Guild):
+        try:
+            await self._sync_guild_commands(guild)
+        except discord.HTTPException:
+            logging.exception("Could not publish application commands for new guild %s (%s)", guild.name, guild.id)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
