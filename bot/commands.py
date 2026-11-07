@@ -45,13 +45,14 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
 
 class ConfirmTimeView(discord.ui.View):
     def __init__(self, bot, actor_id: int, operation: str, seconds: int,
-                 target_id: int | None = None):
+                 target_id: int | None = None, expected_session_id: str | None = None):
         super().__init__(timeout=90)
         self.bot = bot
         self.actor_id = actor_id
         self.operation = operation
         self.seconds = seconds
         self.target_id = target_id
+        self.expected_session_id = expected_session_id
         self.completed = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -79,6 +80,8 @@ class ConfirmTimeView(discord.ui.View):
                 session = fresh.get("chastitysession") or {}
                 if str(session.get("wearerid")) != actor["emlalock_user_id"] or int(session.get("status", 0)) != 1:
                     raise EmlaLockError("Your linked account does not currently have an active wearer session.")
+                if self.expected_session_id and str(session.get("chastitysessionid")) != self.expected_session_id:
+                    raise EmlaLockError("Your active session changed after the request. Please submit it again.")
                 result = await api.add_time(actor["emlalock_user_id"], actor["api_key"], self.seconds,
                                             "Discord assistant")
             else:
@@ -93,6 +96,8 @@ class ConfirmTimeView(discord.ui.View):
                     raise EmlaLockError("The selected account is not the wearer for its current session.")
                 if str(session.get("holderid")) != actor["emlalock_user_id"]:
                     raise EmlaLockError("Your linked EmlaLock account is not the holder for this session.")
+                if self.expected_session_id and str(session.get("chastitysessionid")) != self.expected_session_id:
+                    raise EmlaLockError("The wearer session changed after the request. Please submit it again.")
                 result = await api.subtract_time(target["emlalock_user_id"], target["api_key"],
                                                  actor["api_key"], self.seconds, "Discord assistant")
             session_result = result.get("chastitysession") or {}
@@ -178,10 +183,24 @@ class AccountCommands(commands.Cog):
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
-        view = ConfirmTimeView(self.bot, interaction.user.id, "add", seconds)
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        try:
+            data = await api.info(account["emlalock_user_id"], account["api_key"])
+            session = data.get("chastitysession") or {}
+            if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != account["emlalock_user_id"]:
+                await interaction.response.send_message("Your linked account does not have an active wearer session.", ephemeral=True)
+                return
+            session_id = str(session.get("chastitysessionid", ""))
+        except EmlaLockError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        finally:
+            await api.close()
+        view = ConfirmTimeView(self.bot, interaction.user.id, "add", seconds,
+                               expected_session_id=session_id)
         await interaction.response.send_message(
-            f"Please confirm: **add {duration}** to your currently linked EmlaLock session? "
-            "The active session and permissions will be checked again before applying.",
+            f"Please confirm: **add {duration}** to session **{session_id}**? "
+            "The same session and permissions will be checked again before applying.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Request subtracting time from a linked wearer you hold")
@@ -215,7 +234,8 @@ class AccountCommands(commands.Cog):
             return
         finally:
             await api.close()
-        view = ConfirmTimeView(self.bot, interaction.user.id, "subtract", seconds, wearer.id)
+        session_id = str(session.get("chastitysessionid", ""))
+        view = ConfirmTimeView(self.bot, interaction.user.id, "subtract", seconds, wearer.id, session_id)
         await interaction.response.send_message(
             f"Please confirm: **subtract {duration}** from {wearer.mention}'s active session? "
             "The holder relationship will be checked again before applying.",
