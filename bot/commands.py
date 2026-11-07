@@ -29,7 +29,11 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
             if returned_id != user_id:
                 await interaction.followup.send("EmlaLock did not confirm that User ID. Nothing was saved.", ephemeral=True)
                 return
-            self.bot.storage.link_account(interaction.user.id, user_id, key)
+            try:
+                self.bot.storage.link_account(interaction.user.id, user_id, key)
+            except ValueError as exc:
+                await interaction.followup.send(str(exc), ephemeral=True)
+                return
             await interaction.followup.send(
                 f"Your EmlaLock account ({result['user'].get('username', 'verified')}) is now linked. "
                 "Your API key is encrypted in the bot database.", ephemeral=True)
