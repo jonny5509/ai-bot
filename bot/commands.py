@@ -159,7 +159,9 @@ class ConfirmTimeView(discord.ui.View):
         # Prefer the administrator-configured announcement channel, but never
         # silently drop the announcement when one has not been configured.
         settings = self.bot.storage.get_guild_roles(interaction.guild_id)
-        channel_id = settings.get("notification_channel_id") if settings else None
+        channel_id = self.bot.storage.get_guild_channel(interaction.guild_id, "sessions")
+        if not channel_id:
+            channel_id = settings.get("notification_channel_id") if settings else None
         channel = self.bot.get_channel(int(channel_id)) if channel_id else None
         if channel is None and channel_id:
             try:
@@ -651,15 +653,19 @@ class AccountCommands(commands.Cog):
             if other and int(other["discord_user_id"]) != interaction.user.id:
                 message += f"\n<@{int(other['discord_user_id'])}>"
 
-            if not interaction.channel or not hasattr(interaction.channel, "send"):
-                raise EmlaLockError("I can't post a Friend Link in this channel.")
-            posted = await interaction.channel.send(
-                message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            destination = interaction.channel
+            if interaction.guild:
+                configured_id = self.bot.storage.get_guild_channel(interaction.guild.id, "friendlinks")
+                if configured_id:
+                    destination = interaction.guild.get_channel(configured_id) or await self.bot.fetch_channel(configured_id)
+            if not destination or not hasattr(destination, "send"):
+                raise EmlaLockError("Configured Friend Links channel is unavailable.")
+            posted = await destination.send(message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
             if interaction.guild:
                 self.bot.storage.save_friendlink_message(
-                    interaction.guild.id, interaction.channel.id, posted.id,
+                    interaction.guild.id, destination.id, posted.id,
                     session_id, str(session.get("wearerid") or target["emlalock_user_id"]))
-            await interaction.followup.send("Your Friend Link message has been posted in this channel.", ephemeral=True)
+            await interaction.followup.send(f"Your Friend Link message has been posted in {destination.mention}.", ephemeral=True)
         except (EmlaLockError, ValueError, TypeError) as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
         except (discord.Forbidden, discord.HTTPException):
@@ -1055,6 +1061,33 @@ class AccountCommands(commands.Cog):
         self.bot.storage.set_notification_channel(interaction.guild.id, None)
         await interaction.response.send_message("Time-change announcements have been disabled.", ephemeral=True)
 
+    @app_commands.command(name="setupchannels", description="Choose separate channels for bot activity")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setupchannels(self, interaction: discord.Interaction,
+                            commands_channel: discord.TextChannel | None = None,
+                            sessions_channel: discord.TextChannel | None = None,
+                            adoption_channel: discord.TextChannel | None = None,
+                            friendlinks_channel: discord.TextChannel | None = None,
+                            logs_channel: discord.TextChannel | None = None):
+        if not interaction.guild:
+            await interaction.response.send_message("Use this command in a server.", ephemeral=True)
+            return
+        choices = {"commands": commands_channel, "sessions": sessions_channel,
+                   "adoption": adoption_channel, "friendlinks": friendlinks_channel, "logs": logs_channel}
+        for purpose, channel in choices.items():
+            if channel is not None:
+                self.bot.storage.set_guild_channel(interaction.guild.id, purpose, channel.id)
+        labels = {"commands": "Bot commands", "sessions": "Session updates", "adoption": "Adoption panel",
+                  "friendlinks": "Friend Links", "logs": "Bot logs"}
+        lines = []
+        for purpose, label in labels.items():
+            channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, purpose)
+            channel = interaction.guild.get_channel(channel_id) if channel_id else None
+            lines.append(f"**{label}:** {channel.mention if channel else 'Not set'}")
+        await interaction.response.send_message("Channel settings saved/retained:\n" + "\n".join(lines) +
+            "\nOnly the channels supplied in this command were changed.", ephemeral=True)
+
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
     @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
@@ -1136,8 +1169,10 @@ class AccountCommands(commands.Cog):
             changed, failed = await self.sync_guild_roles(guild)
             # Post the clickable panel in the same channel so setup is a
             # single step and users can immediately see how to participate.
-            if interaction.channel and hasattr(interaction.channel, "send"):
-                await interaction.channel.send(
+            adoption_channel_id = self.bot.storage.get_guild_channel(guild.id, "adoption")
+            adoption_channel = guild.get_channel(adoption_channel_id) if adoption_channel_id else interaction.channel
+            if adoption_channel and hasattr(adoption_channel, "send"):
+                await adoption_channel.send(
                     "**EmlaLock adoption matching**\n"
                     "If your verified active session is missing its wearer or keyholder, use the matching button "
                     "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
@@ -1166,13 +1201,18 @@ class AccountCommands(commands.Cog):
             await interaction.response.send_message("Run /setupadoption first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await interaction.channel.send(
+        adoption_channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, "adoption")
+        adoption_channel = interaction.guild.get_channel(adoption_channel_id) if adoption_channel_id else interaction.channel
+        if adoption_channel is None or not hasattr(adoption_channel, "send"):
+            await interaction.followup.send("Configured adoption channel is unavailable.", ephemeral=True)
+            return
+        await adoption_channel.send(
             "**EmlaLock adoption matching**\n"
             "If your verified active session is missing its wearer or keyholder, use the matching button "
             "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
             "does not change EmlaLock.",
             view=AdoptionPanelView(self.bot))
-        await interaction.followup.send("Adoption panel posted in this channel.", ephemeral=True)
+        await interaction.followup.send(f"Adoption panel posted in {adoption_channel.mention}.", ephemeral=True)
 
     @app_commands.command(name="help", description="Show bot usage")
     async def help_command(self, interaction: discord.Interaction):
