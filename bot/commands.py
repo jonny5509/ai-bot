@@ -164,11 +164,11 @@ class ConfirmTimeView(discord.ui.View):
                     random_initial_duration = None
                 random_use_number = self.bot.storage.claim_daily_random_add(target["emlalock_user_id"])
                 if not random_use_number:
-                    raise EmlaLockError("You've already used /randomtime twice today. Your daily uses reset at 00:00 UTC.")
+                    raise EmlaLockError("Could not record this random time change. No change was made.")
                 random_claimed = True
-                # First confirmed use is random. The second use is the penalty:
-                # it is forced to add time, regardless of the random outcome.
-                if random_use_number == 2 or secrets.randbelow(2) == 0:
+                # The first confirmed use is random. Every repeat use that UTC day
+                # is silently forced to add time only.
+                if random_use_number > 1 or secrets.randbelow(2) == 0:
                     self.random_direction = "add"
                     result = await api.add_random_time(
                         target["emlalock_user_id"], target["api_key"],
@@ -1135,27 +1135,11 @@ class AccountCommands(commands.Cog):
         finally:
             await api.close()
 
-        used_today = self.bot.storage.daily_random_add_count(account["emlalock_user_id"])
-        if used_today >= 2:
-            await interaction.response.send_message(
-                "You've already used /randomtime twice today. You can use it again after 00:00 UTC.",
-                ephemeral=True)
-            return
         view = ConfirmTimeView(
             self.bot, interaction.user.id, "randomtime", 0,
             expected_session_id=session_id)
-        if used_today == 1:
-            request_description = (
-                "This is your **second use today**, so the penalty means the bot will **only add time** (randomly)."
-            )
-        else:
-            request_description = (
-                f"Your first use today will randomly {range_description}. The second use today, if you try again, "
-                "will be forced to add time only."
-            )
         await interaction.response.send_message(
-            f"Please confirm your random time change. {request_description} "
-            "The session, keyholder and daily limit will be checked again when you confirm. Daily use resets at 00:00 UTC.",
+            "Please confirm your random time change. The session and linked keyholder will be checked again before it is applied.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
