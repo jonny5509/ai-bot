@@ -1,3 +1,5 @@
+import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -121,6 +123,7 @@ class ConfirmTimeView(discord.ui.View):
             session_id = session_result.get("chastitysessionid", "confirmed")
             await interaction.edit_original_response(
                 content=f"Change applied successfully. Session: {session_id}.", view=self)
+            await self._post_change_notification(interaction, actor, target, session, session_id)
         except (EmlaLockError, ValueError) as exc:
             await interaction.edit_original_response(content=f"No change was confirmed by the API: {exc}", view=self)
         except Exception:
@@ -128,6 +131,41 @@ class ConfirmTimeView(discord.ui.View):
                 content="Something went wrong. Check the bot logs; credentials are not included in error messages.", view=self)
         finally:
             await api.close()
+
+    async def _post_change_notification(self, interaction, actor, target, session, session_id):
+        if not interaction.guild_id:
+            return
+        settings = self.bot.storage.get_guild_roles(interaction.guild_id)
+        channel_id = settings.get("notification_channel_id") if settings else None
+        if not channel_id:
+            return
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(int(channel_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                logging.warning("Could not access the configured time-change notification channel.")
+                return
+        wearer = self.bot.storage.get_account_by_emlalock_id(target["emlalock_user_id"])
+        holder = self.bot.storage.get_account_by_emlalock_id(str(session.get("holderid", "")))
+        wearer_text = f"<@{wearer['discord_user_id']}>" if wearer else "Unlinked wearer"
+        holder_text = f"<@{holder['discord_user_id']}>" if holder else "Unlinked keyholder"
+        action = "added" if self.operation == "add" else "subtracted"
+        hours, remainder = divmod(self.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        parts = ([f"{hours}h"] if hours else []) + ([f"{minutes}m"] if minutes else []) + ([f"{seconds}s"] if seconds else [])
+        duration = " ".join(parts) or "0s"
+        message = (
+            f"**EmlaLock time change confirmed**\n"
+            f"Wearer: {wearer_text}\n"
+            f"Keyholder: {holder_text}\n"
+            f"Action: {discord.utils.escape_markdown(interaction.user.display_name)} {action} **{duration}**."
+            f"\nSession: **{discord.utils.escape_markdown(str(session_id))}**"
+        )
+        try:
+            await channel.send(message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        except (discord.Forbidden, discord.HTTPException):
+            logging.warning("Could not post a time-change notification in the configured channel.")
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -696,6 +734,28 @@ class AccountCommands(commands.Cog):
             f"Please confirm: **Subtract {duration}** from **{wearer.display_name}** "
             f"(session **{session_id}**)? The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
+
+    @app_commands.command(name="setnotifications", description="Choose where confirmed time changes are announced")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setnotifications(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not interaction.guild:
+            await interaction.response.send_message("Use this command in a server.", ephemeral=True)
+            return
+        self.bot.storage.set_notification_channel(interaction.guild.id, channel.id)
+        await interaction.response.send_message(
+            f"Confirmed /add and /subtract changes will be announced in {channel.mention}, mentioning the linked wearer and keyholder.",
+            ephemeral=True)
+
+    @app_commands.command(name="disablenotifications", description="Stop posting time-change announcements")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def disablenotifications(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("Use this command in a server.", ephemeral=True)
+            return
+        self.bot.storage.set_notification_channel(interaction.guild.id, None)
+        await interaction.response.send_message("Time-change announcements have been disabled.", ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
     @app_commands.default_permissions(manage_roles=True)
