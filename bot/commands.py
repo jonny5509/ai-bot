@@ -135,6 +135,7 @@ class ConfirmTimeView(discord.ui.View):
                 except (TypeError, ValueError, OverflowError):
                     maximum_duration = None
                 unlimited_maximum = maximum_duration == 0
+                prior_daily_uses = self.bot.storage.daily_random_add_count(target["emlalock_user_id"])
                 try:
                     random_initial_end = int(float(session.get("enddate")))
                     remaining_seconds = random_initial_end - int(time.time())
@@ -149,7 +150,7 @@ class ConfirmTimeView(discord.ui.View):
                         except (TypeError, ValueError, OverflowError):
                             remaining_seconds = 0
                     max_subtract_seconds = min(MAX_UNLIMITED_RANDOM_SECONDS, remaining_seconds)
-                    if max_subtract_seconds < 1:
+                    if max_subtract_seconds < 1 and prior_daily_uses == 0:
                         raise EmlaLockError("EmlaLock did not provide a usable current duration for subtraction.")
                 else:
                     if maximum_duration is None and random_initial_end is None:
