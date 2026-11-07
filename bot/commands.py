@@ -156,8 +156,8 @@ class ConfirmTimeView(discord.ui.View):
             logging.info("Skipping time-change announcement because the confirmation was not in a server.")
             return
 
-        # Prefer the administrator-configured announcement channel, but never
-        # silently drop the announcement when one has not been configured.
+        # Time-change announcements belong in the configured session-updates
+        # channel. Never fall back to the command/confirmation channel.
         settings = self.bot.storage.get_guild_roles(interaction.guild_id)
         channel_id = self.bot.storage.get_guild_channel(interaction.guild_id, "sessions")
         if not channel_id:
@@ -167,12 +167,11 @@ class ConfirmTimeView(discord.ui.View):
             try:
                 channel = await self.bot.fetch_channel(int(channel_id))
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                logging.warning("Could not access the configured time-change notification channel; trying the confirmation channel.")
+                logging.exception("Could not access the configured session-updates channel.")
 
-        if channel is None:
-            channel = interaction.channel
         if channel is None or not hasattr(channel, "send"):
-            logging.warning("No usable channel is available for the time-change announcement.")
+            logging.warning(
+                "Time-change announcement not posted: configure a usable #session-updates channel with /setupchannels.")
             return
         # The selected target is already the verified linked wearer account. Use it
         # directly instead of performing a second database lookup that can fail
