@@ -321,6 +321,19 @@ class AccountCommands(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
+        async def commands_channel_check(interaction: discord.Interaction):
+            if interaction.guild:
+                channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, "commands")
+                if channel_id and interaction.channel_id != channel_id:
+                    channel = interaction.guild.get_channel(channel_id)
+                    destination = channel.mention if channel else "the configured bot-commands channel"
+                    await interaction.response.send_message(
+                        f"Please use bot commands in {destination}.", ephemeral=True)
+                    return False
+            return True
+
+        for command in self.get_app_commands():
+            command.add_check(commands_channel_check)
         if not self.role_sync_loop.is_running():
             self.role_sync_loop.start()
 
