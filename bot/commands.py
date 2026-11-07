@@ -1107,10 +1107,12 @@ class AccountCommands(commands.Cog):
                 roles.append(role)
             self.bot.storage.save_guild_roles(interaction.guild.id, *(r.id for r in roles))
             changed, failed = await self.sync_guild_roles(interaction.guild)
-            await interaction.followup.send(
+            await self._post_channel_result(
+                interaction, "commands",
                 f"Session roles are configured and an initial sync has run ({changed} member(s) updated; "
                 f"{failed} failed). Automatic checks now run every 5 minutes. "
-                "The bot's top role must be above these roles.", ephemeral=True)
+                "The bot's top role must be above these roles.")
+            await interaction.followup.send("Setup results posted in #bot-commands.", ephemeral=True)
             await self.bot._sync_guild_commands(interaction.guild)
         except discord.Forbidden:
             await interaction.followup.send("I need Manage Roles permission and a role position above the roles to manage.", ephemeral=True)
@@ -1137,9 +1139,11 @@ class AccountCommands(commands.Cog):
                 "I need the Server Members Intent, Manage Roles permission, and a role position above the session roles.",
                 ephemeral=True)
             return
-        await interaction.followup.send(
+        await self._post_channel_result(
+            interaction, "commands",
             f"Role sync complete. Updated {changed} member(s); {failed} could not be updated. "
-            "Automatic checks now run every 5 minutes.", ephemeral=True)
+            "Automatic checks now run every 5 minutes.")
+        await interaction.followup.send("Role sync results posted in #bot-commands.", ephemeral=True)
 
 
     @app_commands.command(name="setupchannels", description="Create missing EmlaLock channels and configure bot destinations")
@@ -1221,11 +1225,11 @@ class AccountCommands(commands.Cog):
                 "Created: " + ", ".join(created)
                 if created else "All five EmlaLock channels already existed; nothing needed creating."
             )
-            await interaction.followup.send(
+            await self._post_channel_result(
+                interaction, "commands",
                 f"**EmlaLock category:** {category.name}\n"
-                + "\n".join(lines) + f"\n{created_note}",
-                ephemeral=True,
-            )
+                + "\n".join(lines) + f"\n{created_note}")
+            await interaction.followup.send("Channel setup results posted in #bot-commands.", ephemeral=True)
         except discord.Forbidden as exc:
             logging.exception("Discord denied EmlaLock category/channel creation.")
             await interaction.followup.send(
@@ -1279,13 +1283,14 @@ class AccountCommands(commands.Cog):
                     "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
                     "does not change EmlaLock.",
                     view=AdoptionPanelView(self.bot))
-            await interaction.followup.send(
+            await self._post_channel_result(
+                interaction, "commands",
                 f"Adoption roles are configured and the panel has been posted in {adoption_channel.mention if adoption_channel else 'no channel'}. "
                 "Roles are assigned automatically when a verified active EmlaLock session has a wearer but no "
                 "keyholder, or a keyholder but no wearer. "
                 f"Initial sync: {changed} member(s) updated; {failed} failed. "
-                "The bot's top role must be above both adoption roles. Use /syncroles to refresh manually.",
-                ephemeral=True)
+                "The bot's top role must be above both adoption roles. Use /syncroles to refresh manually.")
+            await interaction.followup.send("Adoption setup results posted in #bot-commands.", ephemeral=True)
             await self.bot._sync_guild_commands(guild)
         except discord.Forbidden:
             await interaction.followup.send(
