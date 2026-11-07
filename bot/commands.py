@@ -141,18 +141,25 @@ class ConfirmTimeView(discord.ui.View):
 
     async def _post_change_notification(self, interaction, actor, target, session, session_id):
         if not interaction.guild_id:
+            logging.info("Skipping time-change announcement because the confirmation was not in a server.")
             return
+
+        # Prefer the administrator-configured announcement channel, but never
+        # silently drop the announcement when one has not been configured.
         settings = self.bot.storage.get_guild_roles(interaction.guild_id)
         channel_id = settings.get("notification_channel_id") if settings else None
-        if not channel_id:
-            return
-        channel = self.bot.get_channel(int(channel_id))
-        if channel is None:
+        channel = self.bot.get_channel(int(channel_id)) if channel_id else None
+        if channel is None and channel_id:
             try:
                 channel = await self.bot.fetch_channel(int(channel_id))
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                logging.warning("Could not access the configured time-change notification channel.")
-                return
+                logging.warning("Could not access the configured time-change notification channel; trying the confirmation channel.")
+
+        if channel is None:
+            channel = interaction.channel
+        if channel is None or not hasattr(channel, "send"):
+            logging.warning("No usable channel is available for the time-change announcement.")
+            return
         # The selected target is already the verified linked wearer account. Use it
         # directly instead of performing a second database lookup that can fail
         # when EmlaLock formats the same ID differently.
@@ -181,8 +188,13 @@ class ConfirmTimeView(discord.ui.View):
         )
         try:
             await channel.send(message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            logging.info("Posted time-change announcement in channel %s.", getattr(channel, "id", "unknown"))
         except (discord.Forbidden, discord.HTTPException):
-            logging.warning("Could not post a time-change notification in the configured channel.")
+            logging.exception("Could not post the time-change announcement in the selected channel.")
+        except Exception:
+            # The EmlaLock change has already succeeded; announcement failures
+            # must not make the confirmation appear to have failed.
+            logging.exception("Unexpected error while posting the time-change announcement.")
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
