@@ -227,13 +227,13 @@ class AccountCommands(commands.Cog):
             device_display = str(device_display) if device_display else "Not provided by EmlaLock"
 
             await interaction.followup.send(
-                f"**Session ID:** {session.get('chastitysessionid', 'unknown')}\\n"
-                f"**Session start:** {start_display}\\n"
-                f"**Time elapsed:** {elapsed_display}\\n"
-                f"**Time remaining:** {remaining_display}\\n"
-                f"**Lock / device:** {discord.utils.escape_markdown(device_display)}\\n"
-                f"**Session status:** {status_display}\\n"
-                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\\n"
+                f"**Session ID:** {session.get('chastitysessionid', 'unknown')}\n"
+                f"**Session start:** {start_display}\n"
+                f"**Time elapsed:** {elapsed_display}\n"
+                f"**Time remaining:** {remaining_display}\n"
+                f"**Lock / device:** {discord.utils.escape_markdown(device_display)}\n"
+                f"**Session status:** {status_display}\n"
+                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\n"
                 f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}",
                 ephemeral=True)
         except EmlaLockError as exc:
