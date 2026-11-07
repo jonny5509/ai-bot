@@ -1277,29 +1277,35 @@ class AccountCommands(commands.Cog):
             await interaction.followup.send(
                 "I need Manage Roles permission and a role position above the adoption roles.", ephemeral=True)
 
-    @app_commands.command(name="adoptionpanel", description="Post the adoption request panel in this channel")
+    @app_commands.command(name="adoptionpanel", description="Post the adoption request panel in the adoption channel")
     @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def adoptionpanel(self, interaction: discord.Interaction):
         if not interaction.guild or not interaction.channel or not hasattr(interaction.channel, "send"):
             await interaction.response.send_message("Use this command in a server text channel.", ephemeral=True)
             return
+        adoption_channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, "adoption")
+        if not adoption_channel_id:
+            await interaction.response.send_message(
+                "No adoption channel is configured. Run /setupchannels first.", ephemeral=True)
+            return
+        if interaction.channel_id != adoption_channel_id:
+            adoption_channel = interaction.guild.get_channel(adoption_channel_id)
+            mention = adoption_channel.mention if adoption_channel else "the configured adoption channel"
+            await interaction.response.send_message(
+                f"This command only works in {mention}.", ephemeral=True)
+            return
         if not self.bot.storage.get_adoption_roles(interaction.guild.id):
             await interaction.response.send_message("Run /setupadoption first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        adoption_channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, "adoption")
-        adoption_channel = interaction.guild.get_channel(adoption_channel_id) if adoption_channel_id else interaction.channel
-        if adoption_channel is None or not hasattr(adoption_channel, "send"):
-            await interaction.followup.send("Configured adoption channel is unavailable.", ephemeral=True)
-            return
-        await adoption_channel.send(
-            "**EmlaLock adoption matching**\n"
+        await interaction.channel.send(
+            "**EmlaLock adoption matching**\\n"
             "If your verified active session is missing its wearer or keyholder, use the matching button "
             "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
             "does not change EmlaLock.",
             view=AdoptionPanelView(self.bot))
-        await interaction.followup.send(f"Adoption panel posted in {adoption_channel.mention}.", ephemeral=True)
+        await interaction.followup.send("Adoption panel posted here.", ephemeral=True)
 
     @app_commands.command(name="help", description="Show bot usage")
     async def help_command(self, interaction: discord.Interaction):
