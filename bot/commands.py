@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
@@ -34,9 +34,21 @@ class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
             except ValueError as exc:
                 await interaction.followup.send(str(exc), ephemeral=True)
                 return
+            role_note = ""
+            if interaction.guild:
+                cog = self.bot.get_cog("AccountCommands")
+                if cog:
+                    try:
+                        updated, failed = await cog.sync_guild_roles(interaction.guild)
+                        role_note = f" Session roles checked: {updated} member(s) updated"
+                        if failed:
+                            role_note += f"; {failed} failed"
+                        role_note += "."
+                    except Exception:
+                        role_note = " Automatic role sync could not complete; an admin can run /syncroles."
             await interaction.followup.send(
                 f"Your EmlaLock account ({result['user'].get('username', 'verified')}) is now linked. "
-                "Your API key is encrypted in the bot database.", ephemeral=True)
+                "Your API key is encrypted in the bot database." + role_note, ephemeral=True)
         except EmlaLockError as exc:
             await interaction.followup.send(f"Account verification failed: {exc}", ephemeral=True)
         finally:
@@ -123,6 +135,97 @@ class ConfirmTimeView(discord.ui.View):
 class AccountCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    async def cog_load(self):
+        if not self.role_sync_loop.is_running():
+            self.role_sync_loop.start()
+
+    async def cog_unload(self):
+        self.role_sync_loop.cancel()
+
+    @tasks.loop(minutes=5)
+    async def role_sync_loop(self):
+        for guild in self.bot.guilds:
+            if self.bot.storage.get_guild_roles(guild.id):
+                try:
+                    await self.sync_guild_roles(guild)
+                except Exception:
+                    continue
+
+    @role_sync_loop.before_loop
+    async def before_role_sync_loop(self):
+        await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if self.bot.storage.get_guild_roles(member.guild.id):
+            try:
+                await self.sync_guild_roles(member.guild)
+            except Exception:
+                pass
+
+    async def sync_guild_roles(self, guild: discord.Guild) -> tuple[int, int]:
+        settings = self.bot.storage.get_guild_roles(guild.id)
+        if not settings:
+            return (0, 0)
+        members = [m async for m in guild.fetch_members(limit=None)]
+        accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        active_sessions = []
+        verified_user_ids = set()
+        try:
+            for account in accounts:
+                try:
+                    data = await api.info(account["emlalock_user_id"], account["api_key"])
+                    verified_user_ids.add(account["emlalock_user_id"])
+                    session = data.get("chastitysession") or {}
+                    if int(session.get("status", 0)) == 1:
+                        active_sessions.append(session)
+                except EmlaLockError:
+                    continue
+        finally:
+            await api.close()
+
+        role_ids = {
+            "wearer": int(settings["wearer_role_id"]),
+            "holder": int(settings["keyholder_role_id"]),
+            "dual": int(settings["dual_role_id"]),
+        }
+        roles = {key: guild.get_role(value) for key, value in role_ids.items()}
+        if any(role is None for role in roles.values()):
+            return (0, len(members))
+
+        linked = {a["discord_user_id"]: a for a in accounts}
+        changed = 0
+        failed = 0
+        managed = set(roles.values())
+        for member in members:
+            account = linked.get(member.id)
+            if not account or account["emlalock_user_id"] not in verified_user_ids:
+                continue
+            uid = account["emlalock_user_id"]
+            is_wearer = any(str(session.get("wearerid")) == uid for session in active_sessions)
+            is_holder = any(str(session.get("holderid")) == uid for session in active_sessions)
+            desired = set()
+            if is_wearer:
+                desired.add(roles["wearer"])
+            if is_holder:
+                desired.add(roles["holder"])
+            if is_wearer and is_holder:
+                desired.add(roles["dual"])
+            current = set(member.roles)
+            remove = (current & managed) - desired
+            add = desired - current
+            if add or remove:
+                try:
+                    if remove:
+                        await member.remove_roles(*remove, reason="EmlaLock automatic role synchronization")
+                    if add:
+                        await member.add_roles(*add, reason="EmlaLock automatic role synchronization")
+                    changed += 1
+                except discord.Forbidden:
+                    failed += 1
+        return changed, failed
 
     @app_commands.command(name="link", description="Securely link your EmlaLock account")
     async def link(self, interaction: discord.Interaction):
@@ -354,67 +457,16 @@ class AccountCommands(commands.Cog):
             await interaction.response.send_message("Run /setuproles first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        members = [m async for m in guild.fetch_members(limit=None)]
-        accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
-        linked = {a["discord_user_id"]: a for a in accounts}
-        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
-        active_sessions = []
-        verified_user_ids = set()
         try:
-            for account in accounts:
-                try:
-                    data = await api.info(account["emlalock_user_id"], account["api_key"])
-                    verified_user_ids.add(account["emlalock_user_id"])
-                    session = data.get("chastitysession") or {}
-                    if int(session.get("status", 0)) == 1:
-                        active_sessions.append(session)
-                except EmlaLockError:
-                    continue
-        finally:
-            await api.close()
-
-        role_ids = {
-            "wearer": int(settings["wearer_role_id"]),
-            "holder": int(settings["keyholder_role_id"]),
-            "dual": int(settings["dual_role_id"]),
-        }
-        roles = {key: guild.get_role(value) for key, value in role_ids.items()}
-        if any(role is None for role in roles.values()):
-            await interaction.followup.send("One or more configured roles no longer exist. Run /setuproles again.", ephemeral=True)
+            changed, failed = await self.sync_guild_roles(guild)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I need the Server Members Intent, Manage Roles permission, and a role position above the session roles.",
+                ephemeral=True)
             return
-
-        changed = 0
-        failed = 0
-        for member in members:
-            account = linked.get(member.id)
-            if not account:
-                continue
-            uid = account["emlalock_user_id"]
-            if uid not in verified_user_ids:
-                continue
-            is_wearer = any(str(s.get("wearerid")) == uid for s in active_sessions)
-            is_holder = any(str(s.get("holderid")) == uid for s in active_sessions)
-            desired = set()
-            if is_wearer:
-                desired.add(roles["wearer"])
-            if is_holder:
-                desired.add(roles["holder"])
-            if is_wearer and is_holder:
-                desired.add(roles["dual"])
-            managed = set(roles.values())
-            current = set(member.roles)
-            remove = (current & managed) - desired
-            add = desired - current
-            if add or remove:
-                try:
-                    await member.remove_roles(*remove, reason="EmlaLock role synchronization")
-                    await member.add_roles(*add, reason="EmlaLock role synchronization")
-                    changed += 1
-                except discord.Forbidden:
-                    failed += 1
         await interaction.followup.send(
             f"Role sync complete. Updated {changed} member(s); {failed} could not be updated. "
-            "Only the three bot-managed roles were changed.", ephemeral=True)
+            "Automatic checks now run every 5 minutes.", ephemeral=True)
 
     @app_commands.command(name="help", description="Show bot usage")
     async def help_command(self, interaction: discord.Interaction):
