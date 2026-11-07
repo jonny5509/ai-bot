@@ -23,7 +23,14 @@ class EmlaLockBot(commands.Bot):
 
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
+
+        # Update the global command definitions, then remove stale guild-scoped
+        # copies and register the current commands per server for immediate updates.
         await self.tree.sync()
+        for guild in self.guilds:
+            self.tree.clear_commands(guild=guild)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
