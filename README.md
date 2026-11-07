@@ -18,6 +18,8 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - `/subtract @wearer duration` when the caller's linked EmlaLock account is the holder of the target's active session. The official API holder key parameter is used.
 - Re-checks session status and holder/wearer relationship immediately before a mutation.
 - `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
+- `/setupadoption` creates automatic **Looking for Keyholder** and **Looking for Wearer** roles. A linked wearer with an active session and no holder receives Looking for Keyholder; a linked holder whose active session has no wearer receives Looking for Wearer.
+- `/adoptionpanel` posts persistent buttons to find someone with the opposite adoption role. Members select a candidate and send a private adoption request with Accept and Decline buttons. Both accounts must be linked, and the bot notifies the requester when the other member responds.
 - `/unlink` to disconnect an account.
 
 ## Important API limitations
@@ -53,7 +55,7 @@ The setup wizard intentionally listens only on `127.0.0.1`; it is not a public h
 
 1. Create a Discord application and add a bot.
 2. In the Discord Developer Portal, enable **Message Content Intent** and **Server Members Intent**. These are needed for natural-language mentions and role synchronization.
-3. Invite the bot with the `bot` and `applications.commands` scopes. Grant Send Messages, Read Message History, Use Application Commands, and Manage Nicknames. If using role sync, also grant Manage Roles. The bot's highest role must be above members whose nicknames it should change, as well as above the three session roles.
+3. Invite the bot with the `bot` and `applications.commands` scopes. Grant Send Messages, Read Message History, Use Application Commands, and Manage Nicknames. If using role sync, also grant Manage Roles. The bot's highest role must be above members whose nicknames it should change, as well as above the three session roles and both adoption roles.
 4. Install Python 3.11 or newer.
 5. Create a virtual environment and install dependencies:
 
@@ -106,6 +108,8 @@ The updater downloads the latest `main` branch from GitHub. It leaves `.env`, lo
 | `/subtract @member 30 minutes` | Request holder-authorized subtraction |
 | `/setuproles` | Create the three managed session roles |
 | `/syncroles` | Synchronize roles for linked members |
+| `/setupadoption` | Create automatic adoption matching roles |
+| `/adoptionpanel` | Post the clickable adoption request panel |
 | `/help` | Show command help |
 
 You can also mention the bot in a channel, for example `@Bot add 2 hours` or `@Bot session info`. Mutation confirmations are sent by DM.
@@ -114,6 +118,7 @@ You can also mention the bot in a channel, for example `@Bot add 2 hours` or `@B
 
 - All time changes require an explicit confirmation button.
 - The bot re-reads the relevant session before changing it.
+- Accepting an adoption request only records mutual interest in Discord. It does not change an EmlaLock account, session, wearer, or keyholder relationship. The two members must complete that change on EmlaLock themselves; the bot will update the adoption roles after the API reports the new relationship.
 - The EmlaLock API remains the final authority for authorization.
 - Do not share API keys in public channels. Use the private `/link` modal.
 - Never commit `.env`, SQLite databases, or encryption keys.
