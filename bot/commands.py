@@ -138,7 +138,7 @@ class ConfirmTimeView(discord.ui.View):
 
 
 class WearerChoiceSelect(discord.ui.Select):
-    def __init__(self, choices):
+    def __init__(self, choices, operation):
         options = [
             discord.SelectOption(
                 label=discord.utils.escape_markdown(member.display_name)[:100],
@@ -148,7 +148,7 @@ class WearerChoiceSelect(discord.ui.Select):
             for member, _account, session in choices[:25]
         ]
         super().__init__(
-            placeholder="Choose which wearer to add time to",
+            placeholder=f"Choose which wearer to {operation} time {'to' if operation == 'add' else 'from'}",
             min_values=1,
             max_values=1,
             options=options,
@@ -159,15 +159,16 @@ class WearerChoiceSelect(discord.ui.Select):
 
 
 class WearerChoiceView(discord.ui.View):
-    def __init__(self, bot, actor_id: int, seconds: int, duration: str, choices):
+    def __init__(self, bot, actor_id: int, operation: str, seconds: int, duration: str, choices):
         super().__init__(timeout=90)
         self.bot = bot
         self.actor_id = actor_id
         self.seconds = seconds
+        self.operation = operation
         self.duration = duration
         self.choices = {member.id: (member, account, session)
                         for member, account, session in choices[:25]}
-        self.add_item(WearerChoiceSelect(choices))
+        self.add_item(WearerChoiceSelect(choices, operation))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.actor_id:
@@ -199,7 +200,7 @@ class WearerChoiceView(discord.ui.View):
                     "EmlaLock no longer shows you as the keyholder for that active wearer session.")
             session_id = str(session.get("chastitysessionid", ""))
             confirmation = ConfirmTimeView(
-                self.bot, self.actor_id, "add", self.seconds,
+                self.bot, self.actor_id, self.operation, self.seconds,
                 target_id=member.id, expected_session_id=session_id)
             await interaction.edit_original_response(
                 content=(f"Please confirm: **add {self.duration}** to "
@@ -546,7 +547,7 @@ class AccountCommands(commands.Cog):
                         wearer, _linked_account, _matched_session = held_wearers[0]
                     elif len(held_wearers) > 1:
                         view = WearerChoiceView(
-                            self.bot, interaction.user.id, seconds, duration, held_wearers)
+                            self.bot, interaction.user.id, "add", seconds, duration, held_wearers)
                         await interaction.response.send_message(
                             "You hold multiple linked active wearer sessions. Select who to add time to:",
                             view=view, ephemeral=True)
@@ -592,9 +593,9 @@ class AccountCommands(commands.Cog):
             "The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
 
-    @app_commands.command(name="subtract", description="Request subtracting time from a linked wearer you hold")
-    @app_commands.describe(wearer="The Discord member whose EmlaLock session you hold",
-                           amount="How many units to subtract", unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.command(name="subtract", description="Subtract time from your own linked wearer or a wearer session you hold")
+    @app_commands.describe(wearer="Optional: linked wearer whose session you hold", amount="How many units to subtract",
+                           unit="Choose seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
         app_commands.Choice(name="Seconds", value="seconds"),
         app_commands.Choice(name="Minutes", value="minutes"),
@@ -602,41 +603,97 @@ class AccountCommands(commands.Cog):
         app_commands.Choice(name="Days", value="days"),
         app_commands.Choice(name="Weeks", value="weeks"),
     ])
-    async def subtract(self, interaction: discord.Interaction, wearer: discord.Member,
-                       amount: app_commands.Range[int, 1, 100000], unit: app_commands.Choice[str]):
+    async def subtract(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100000],
+                       unit: app_commands.Choice[str], wearer: discord.Member | None = None):
         duration = f"{amount} {unit.value}"
-        if wearer.id == interaction.user.id:
-            await interaction.response.send_message("Choose the wearer account, not your own holder account.", ephemeral=True)
-            return
         actor = self.bot.storage.get_account(interaction.user.id)
-        target = self.bot.storage.get_account(wearer.id)
-        if not actor or not target:
-            await interaction.response.send_message("Both you and the wearer must link EmlaLock accounts using /link.", ephemeral=True)
+        if not actor:
+            await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
+            return
+        if wearer and wearer.id == interaction.user.id:
+            await interaction.response.send_message("Choose a wearer account, not your own holder account.", ephemeral=True)
             return
         try:
             seconds = parse_duration(duration)
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
+
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
-            data = await api.info(target["emlalock_user_id"], target["api_key"])
-            session = data.get("chastitysession") or {}
-            if int(session.get("status", 0)) != 1 or str(session.get("holderid")) != actor["emlalock_user_id"]:
+            if wearer is None and interaction.guild:
+                role_settings = self.bot.storage.get_guild_roles(interaction.guild.id)
+                keyholder_role_id = int(role_settings["keyholder_role_id"]) if role_settings else None
+                member = interaction.guild.get_member(interaction.user.id)
+                has_keyholder_role = bool(
+                    member and keyholder_role_id
+                    and any(role.id == keyholder_role_id for role in member.roles)
+                )
+                if has_keyholder_role:
+                    members = [m async for m in interaction.guild.fetch_members(limit=None)]
+                    linked_accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
+                    member_by_id = {m.id: m for m in members}
+                    held_wearers = []
+                    for linked in linked_accounts:
+                        if str(linked["emlalock_user_id"]) == str(actor["emlalock_user_id"]):
+                            continue
+                        try:
+                            wearer_data = await api.info(linked["emlalock_user_id"], linked["api_key"])
+                            candidate = wearer_data.get("chastitysession") or {}
+                            if (int(candidate.get("status", 0)) == 1
+                                    and str(candidate.get("wearerid")) == str(linked["emlalock_user_id"])
+                                    and str(candidate.get("holderid")) == str(actor["emlalock_user_id"])):
+                                linked_member = member_by_id.get(int(linked["discord_user_id"]))
+                                if linked_member:
+                                    held_wearers.append((linked_member, linked, candidate))
+                        except (EmlaLockError, ValueError, TypeError):
+                            continue
+                    if len(held_wearers) == 1:
+                        wearer = held_wearers[0][0]
+                    elif len(held_wearers) > 1:
+                        view = WearerChoiceView(
+                            self.bot, interaction.user.id, "subtract", seconds, duration, held_wearers)
+                        await interaction.response.send_message(
+                            "You hold multiple linked active wearer sessions. Select who to subtract time from:",
+                            view=view, ephemeral=True)
+                        return
+                    else:
+                        await interaction.response.send_message(
+                            "Your Keyholder role is detected, but I couldn't find a linked active wearer session "
+                            "that lists your EmlaLock account as the holder.",
+                            ephemeral=True)
+                        return
+
+            if wearer is None:
                 await interaction.response.send_message(
-                    "EmlaLock does not show your linked account as the holder of that active wearer session.",
+                    "Select a wearer, or use /subtract in a server where your Keyholder role is configured.",
                     ephemeral=True)
                 return
-        except EmlaLockError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
+            target = self.bot.storage.get_account(wearer.id)
+            if not target:
+                await interaction.response.send_message(
+                    "That wearer must link their EmlaLock account using /link first.", ephemeral=True)
+                return
+            data = await api.info(target["emlalock_user_id"], target["api_key"])
+            session = data.get("chastitysession") or {}
+            if (int(session.get("status", 0)) != 1
+                    or str(session.get("wearerid")) != str(target["emlalock_user_id"])
+                    or str(session.get("holderid")) != str(actor["emlalock_user_id"])):
+                await interaction.response.send_message(
+                    "EmlaLock does not show your linked account as the keyholder of that active wearer session.",
+                    ephemeral=True)
+                return
+            session_id = str(session.get("chastitysessionid", ""))
+        except (EmlaLockError, ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"Could not verify the active session: {exc}", ephemeral=True)
             return
         finally:
             await api.close()
-        session_id = str(session.get("chastitysessionid", ""))
+
         view = ConfirmTimeView(self.bot, interaction.user.id, "subtract", seconds, wearer.id, session_id)
         await interaction.response.send_message(
-            f"Please confirm: **subtract {duration}** from {wearer.mention}'s active session? "
-            "The holder relationship will be checked again before applying.",
+            f"Please confirm: **subtract {duration}** from {wearer.mention}'s active session "
+            f"(**{session_id}**)? The holder relationship will be checked again before applying.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
