@@ -8,8 +8,10 @@ class EmlaLockError(Exception):
 class EmlaLockClient:
     BASE_URL = "https://api.emlalock.com"
 
-    def __init__(self, timeout: float = 15.0):
-        self._client = httpx.AsyncClient(base_url=self.BASE_URL, timeout=timeout)
+    def __init__(self, base_url: str | None = None, timeout: float = 15.0):
+        self._client = httpx.AsyncClient(
+            base_url=(base_url or self.BASE_URL).rstrip("/"), timeout=timeout
+        )
 
     async def _get(self, path: str, params: dict):
         try:
