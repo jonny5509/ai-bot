@@ -1074,32 +1074,46 @@ class AccountCommands(commands.Cog):
         self.bot.storage.set_notification_channel(interaction.guild.id, None)
         await interaction.response.send_message("Time-change announcements have been disabled.", ephemeral=True)
 
-    @app_commands.command(name="setupchannels", description="Choose separate channels for bot activity")
+    @app_commands.command(name="setupchannels", description="Configure bot channels, optionally creating an EmlaLock category")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setupchannels(self, interaction: discord.Interaction,
+                            create_emlalock_category: bool = False,
                             commands_channel: discord.TextChannel | None = None,
                             sessions_channel: discord.TextChannel | None = None,
                             adoption_channel: discord.TextChannel | None = None,
                             friendlinks_channel: discord.TextChannel | None = None,
                             logs_channel: discord.TextChannel | None = None):
-        if not interaction.guild:
+        guild = interaction.guild
+        if not guild:
             await interaction.response.send_message("Use this command in a server.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True, thinking=True)
         choices = {"commands": commands_channel, "sessions": sessions_channel,
                    "adoption": adoption_channel, "friendlinks": friendlinks_channel, "logs": logs_channel}
+        if create_emlalock_category:
+            category = discord.utils.find(lambda item: item.name.casefold() == "emlalock", guild.categories)
+            if category is None:
+                category = await guild.create_category("EmlaLock", reason="Create EmlaLock bot channel group")
+            channel_names = {"commands": "bot-commands", "sessions": "session-updates",
+                             "adoption": "adoption", "friendlinks": "friend-links", "logs": "bot-logs"}
+            for purpose, name in channel_names.items():
+                existing = discord.utils.find(
+                    lambda item: item.name == name and item.category_id == category.id, guild.text_channels)
+                choices[purpose] = existing or await guild.create_text_channel(
+                    name, category=category, reason="Create EmlaLock bot channel")
         for purpose, channel in choices.items():
             if channel is not None:
-                self.bot.storage.set_guild_channel(interaction.guild.id, purpose, channel.id)
+                self.bot.storage.set_guild_channel(guild.id, purpose, channel.id)
         labels = {"commands": "Bot commands", "sessions": "Session updates", "adoption": "Adoption panel",
                   "friendlinks": "Friend Links", "logs": "Bot logs"}
         lines = []
         for purpose, label in labels.items():
-            channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, purpose)
-            channel = interaction.guild.get_channel(channel_id) if channel_id else None
+            channel_id = self.bot.storage.get_guild_channel(guild.id, purpose)
+            channel = guild.get_channel(channel_id) if channel_id else None
             lines.append(f"**{label}:** {channel.mention if channel else 'Not set'}")
-        await interaction.response.send_message("Channel settings saved/retained:\n" + "\n".join(lines) +
-            "\nOnly the channels supplied in this command were changed.", ephemeral=True)
+        await interaction.followup.send("Channel settings saved:\n" + "\n".join(lines) +
+            ("\nAll five channels are grouped under **EmlaLock**." if create_emlalock_category else ""), ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
     @app_commands.default_permissions(manage_roles=True)
