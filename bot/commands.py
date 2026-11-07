@@ -1142,6 +1142,32 @@ class AccountCommands(commands.Cog):
             "Automatic checks now run every 5 minutes.", ephemeral=True)
 
 
+    @app_commands.command(name="setupchannels", description="Choose separate channels for bot activity")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def setupchannels(self, interaction: discord.Interaction,
+                            commands_channel: discord.TextChannel | None = None,
+                            sessions_channel: discord.TextChannel | None = None,
+                            adoption_channel: discord.TextChannel | None = None,
+                            friendlinks_channel: discord.TextChannel | None = None,
+                            logs_channel: discord.TextChannel | None = None):
+        if not interaction.guild:
+            await interaction.response.send_message("Use this command in a server.", ephemeral=True)
+            return
+        choices = {"commands": commands_channel, "sessions": sessions_channel, "adoption": adoption_channel,
+                   "friendlinks": friendlinks_channel, "logs": logs_channel}
+        for purpose, channel in choices.items():
+            if channel is not None:
+                self.bot.storage.set_guild_channel(interaction.guild.id, purpose, channel.id)
+        labels = {"commands": "Bot commands", "sessions": "Session updates", "adoption": "Adoption panel",
+                  "friendlinks": "Friend Links", "logs": "Bot logs"}
+        lines = []
+        for purpose, label in labels.items():
+            channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, purpose)
+            channel = interaction.guild.get_channel(channel_id) if channel_id else None
+            lines.append(f"**{label}:** {channel.mention if channel else 'Not set'}")
+        await interaction.response.send_message("Saved/retained channel settings:\\n" + "\\n".join(lines), ephemeral=True)
+
     @app_commands.command(name="setupadoption", description="Create automatic Looking for Keyholder and Looking for Wearer roles")
     @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
