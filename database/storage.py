@@ -91,7 +91,7 @@ class Storage:
         return int(row["use_count"]) if row else 0
 
     def daily_random_add_used(self, emlalock_user_id: str) -> bool:
-        return self.daily_random_add_count(emlalock_user_id) >= 2
+        return self.daily_random_add_count(emlalock_user_id) > 0
 
     def claim_daily_random_add(self, emlalock_user_id: str) -> int:
         # Atomically count each confirmed daily use. The first is random; later uses
