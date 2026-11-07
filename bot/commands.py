@@ -184,21 +184,57 @@ class AccountCommands(commands.Cog):
 
             wearer_name = await display_name(session.get("wearerid"))
             holder_name = await display_name(session.get("holderid"))
-            duration = session.get("duration", "unknown")
-            try:
-                total_seconds = max(0, int(duration))
+            from datetime import datetime, timezone
+            import time
+
+            def format_hms(value):
+                try:
+                    total_seconds = max(0, int(float(value)))
+                except (TypeError, ValueError, OverflowError):
+                    return "Not provided by EmlaLock"
                 hours, remainder = divmod(total_seconds, 3600)
                 minutes, seconds = divmod(remainder, 60)
-                duration_display = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            except (TypeError, ValueError):
-                duration_display = str(duration)
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+            def format_timestamp(value):
+                try:
+                    timestamp = int(float(value))
+                    if timestamp <= 0:
+                        return "Not provided by EmlaLock"
+                    return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                except (TypeError, ValueError, OverflowError, OSError):
+                    return "Not provided by EmlaLock"
+
+            now = int(time.time())
+            start_value = session.get("startdate")
+            end_value = session.get("enddate")
+            start_display = format_timestamp(start_value)
+            try:
+                elapsed_display = format_hms(now - int(float(start_value)))
+            except (TypeError, ValueError, OverflowError):
+                elapsed_display = "Not provided by EmlaLock"
+            try:
+                remaining_display = format_hms(int(float(end_value)) - now)
+            except (TypeError, ValueError, OverflowError):
+                remaining_display = "Not provided by EmlaLock"
+
+            raw_status = session.get("status")
+            status_display = {
+                1: "Active", "1": "Active",
+                0: "Inactive / ended", "0": "Inactive / ended",
+            }.get(raw_status, str(raw_status) if raw_status is not None else "Not provided by EmlaLock")
+            device_display = session.get("device") or session.get("devicename") or session.get("lock")
+            device_display = str(device_display) if device_display else "Not provided by EmlaLock"
 
             await interaction.followup.send(
-                f"**Session:** {session.get('chastitysessionid', 'unknown')}\n"
-                f"**Status:** {session.get('status', 'unknown')}\n"
-                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\n"
-                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}\n"
-                f"**Duration:** {duration_display}",
+                f"**Session ID:** {session.get('chastitysessionid', 'unknown')}\\n"
+                f"**Session start:** {start_display}\\n"
+                f"**Time elapsed:** {elapsed_display}\\n"
+                f"**Time remaining:** {remaining_display}\\n"
+                f"**Lock / device:** {discord.utils.escape_markdown(device_display)}\\n"
+                f"**Session status:** {status_display}\\n"
+                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\\n"
+                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}",
                 ephemeral=True)
         except EmlaLockError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
