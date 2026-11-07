@@ -504,11 +504,11 @@ class AccountCommands(commands.Cog):
             # Adoption roles are driven by the verified active EmlaLock session:
             # a wearer with no holder seeks a keyholder; a holder with no wearer seeks a wearer.
             missing_holder = is_wearer and any(
-                not str(session.get("holderid") or "").strip()
+                str(session.get("holderid") or "").strip().lower() in ("", "0", "none", "null")
                 for session in wearer_sessions
             )
             missing_wearer = is_holder and any(
-                not str(session.get("wearerid") or "").strip()
+                str(session.get("wearerid") or "").strip().lower() in ("", "0", "none", "null")
                 for session in holder_sessions
             )
             if "looking_for_keyholder" in adoption_roles and missing_holder:
@@ -1153,13 +1153,14 @@ class AccountCommands(commands.Cog):
         if not self.bot.storage.get_adoption_roles(interaction.guild.id):
             await interaction.response.send_message("Run /setupadoption first.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True, thinking=True)
         await interaction.channel.send(
             "**EmlaLock adoption matching**\n"
             "If your verified active session is missing its wearer or keyholder, use the matching button "
             "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
             "does not change EmlaLock.",
             view=AdoptionPanelView(self.bot))
-        await interaction.response.send_message("Adoption panel posted in this channel.", ephemeral=True)
+        await interaction.followup.send("Adoption panel posted in this channel.", ephemeral=True)
 
     @app_commands.command(name="help", description="Show bot usage")
     async def help_command(self, interaction: discord.Interaction):
