@@ -495,6 +495,88 @@ class AccountCommands(commands.Cog):
             f"Linked EmlaLock User ID: {account['emlalock_user_id']}. API key is stored encrypted.",
             ephemeral=True)
 
+    @app_commands.command(name="friendlink", description="Post your session Friend Link, or one for a session you hold")
+    @app_commands.describe(wearer="For keyholders: select the linked wearer whose session you hold")
+    async def friendlink(self, interaction: discord.Interaction, wearer: discord.Member | None = None):
+        actor = self.bot.storage.get_account(interaction.user.id)
+        if not actor:
+            await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
+            return
+        if wearer and wearer.id == interaction.user.id:
+            wearer = None
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
+        try:
+            target = actor
+            session = None
+            if wearer:
+                target = self.bot.storage.get_account(wearer.id)
+                if not target:
+                    raise EmlaLockError("That wearer must link their EmlaLock account using /link first.")
+                data = await api.info(target["emlalock_user_id"], target["api_key"])
+                session = data.get("chastitysession") or {}
+            else:
+                own_data = await api.info(actor["emlalock_user_id"], actor["api_key"])
+                own_session = own_data.get("chastitysession") or {}
+                if (int(own_session.get("status", 0)) == 1
+                        and str(own_session.get("wearerid")) == str(actor["emlalock_user_id"])):
+                    session = own_session
+                elif interaction.guild:
+                    members = [member async for member in interaction.guild.fetch_members(limit=None)]
+                    linked_accounts = self.bot.storage.list_guild_accounts([member.id for member in members])
+                    held = []
+                    for linked in linked_accounts:
+                        if str(linked["emlalock_user_id"]) == str(actor["emlalock_user_id"]):
+                            continue
+                        try:
+                            data = await api.info(linked["emlalock_user_id"], linked["api_key"])
+                            candidate = data.get("chastitysession") or {}
+                            if (int(candidate.get("status", 0)) == 1
+                                    and str(candidate.get("wearerid")) == str(linked["emlalock_user_id"])
+                                    and str(candidate.get("holderid")) == str(actor["emlalock_user_id"])):
+                                held.append((linked, candidate))
+                        except (EmlaLockError, ValueError, TypeError):
+                            continue
+                    if len(held) == 1:
+                        target, session = held[0]
+                    elif len(held) > 1:
+                        choices = "\n".join(
+                            f"• <@{item[0]['discord_user_id']}> — session {item[1].get('chastitysessionid', 'unknown')}"
+                            for item in held)
+                        await interaction.followup.send(
+                            "You hold multiple linked active sessions. Run /friendlink and select a wearer:\n" + choices,
+                            ephemeral=True)
+                        return
+                if session is None:
+                    raise EmlaLockError("I couldn't find an active wearer session for you or a linked wearer you keyhold.")
+            if (int(session.get("status", 0)) != 1
+                    or str(session.get("wearerid")) != str(target["emlalock_user_id"])):
+                raise EmlaLockError("That account does not have an active wearer session.")
+            is_keyholder = str(session.get("holderid") or "") == str(actor["emlalock_user_id"])
+            is_wearer = str(session.get("wearerid") or "") == str(actor["emlalock_user_id"])
+            if not is_wearer and not is_keyholder:
+                raise EmlaLockError("EmlaLock does not show your linked account as the wearer or keyholder.")
+            if is_keyholder and not is_wearer and str(session.get("holderfriendlink", "0")) not in ("1", "true", "True"):
+                raise EmlaLockError("The wearer has not enabled Friend Link access for their keyholder.")
+            session_id = str(session.get("chastitysessionid") or "").strip()
+            if not session_id:
+                raise EmlaLockError("EmlaLock did not provide a session link ID.")
+            url = f"https://www.emlalock.com/#/f/{session_id}"
+            message = ("Help with my session" if is_wearer else
+                       "Help with the session I am keyholding") + f"\n{url}"
+            if not interaction.channel or not hasattr(interaction.channel, "send"):
+                raise EmlaLockError("I can't post a Friend Link in this channel.")
+            await interaction.channel.send(
+                message, allowed_mentions=discord.AllowedMentions.none())
+            await interaction.followup.send("Your Friend Link message has been posted in this channel.", ephemeral=True)
+        except (EmlaLockError, ValueError, TypeError) as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "I couldn't post in this channel. Check that I have permission to send messages.", ephemeral=True)
+        finally:
+            await api.close()
+
     @app_commands.command(name="session", description="Show your current EmlaLock session")
     async def session(self, interaction: discord.Interaction):
         account = self.bot.storage.get_account(interaction.user.id)
@@ -925,7 +1007,7 @@ class AccountCommands(commands.Cog):
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.send_message(
             "**EmlaLock assistant**\n/link — privately connect your account\n"
-            "/session — view your current session\n/add duration — confirm adding time to your own session\n"
+            "/session — view your current session\n/friendlink — post your session Friend Link\n/add duration — confirm adding time to your own session\n"
             "/subtract wearer duration — holder-authorized subtraction\n"
             "/setuproles and /syncroles — configure and synchronize server roles\n"
             "/unlink — disconnect your account\n\n"
