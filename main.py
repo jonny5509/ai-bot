@@ -70,7 +70,7 @@ class EmlaLockBot(commands.Bot):
                 if not actor or not target:
                     await message.reply("Both you and the wearer need linked EmlaLock accounts. Use /link privately.")
                     return
-                api = EmlaLockClient()
+                api = EmlaLockClient(self.settings.emlalock_api_base_url)
                 try:
                     info = await api.info(target["emlalock_user_id"], target["api_key"])
                     session = info.get("chastitysession") or {}
@@ -102,7 +102,7 @@ class EmlaLockBot(commands.Bot):
             if not account:
                 await message.reply("Use /link to securely connect your EmlaLock account first.")
                 return
-            api = EmlaLockClient()
+            api = EmlaLockClient(self.settings.emlalock_api_base_url)
             try:
                 data = await api.info(account["emlalock_user_id"], account["api_key"])
                 session = data.get("chastitysession") or {}
