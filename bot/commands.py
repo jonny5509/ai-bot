@@ -320,6 +320,17 @@ class AccountCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _post_channel_result(self, interaction: discord.Interaction, purpose: str, content: str):
+        """Post a non-sensitive command result in its configured destination channel."""
+        if not interaction.guild:
+            return False
+        channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, purpose)
+        channel = interaction.guild.get_channel(channel_id) if channel_id else None
+        if channel is None or not hasattr(channel, "send"):
+            return False
+        await channel.send(content)
+        return True
+
     async def cog_load(self):
         async def commands_channel_check(interaction: discord.Interaction):
             if interaction.guild:
@@ -818,7 +829,7 @@ class AccountCommands(commands.Cog):
             device_display = session.get("device") or session.get("devicename") or session.get("lock")
             device_display = str(device_display) if device_display else "Not provided by EmlaLock"
 
-            await interaction.followup.send(
+            session_message = (
                 f"**Session ID:** {session.get('chastitysessionid', 'unknown')}\n"
                 f"**Session start:** {start_display}\n"
                 f"**Time elapsed:** {elapsed_display}\n"
@@ -826,8 +837,11 @@ class AccountCommands(commands.Cog):
                 f"**Lock / device:** {discord.utils.escape_markdown(device_display)}\n"
                 f"**Session status:** {status_display}\n"
                 f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\n"
-                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}",
-                ephemeral=True)
+                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}"
+            )
+            if not await self._post_channel_result(interaction, "sessions", session_message):
+                await interaction.followup.send(
+                    "The session channel is not configured. Run /setupchannels first.", ephemeral=True)
         except EmlaLockError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
         finally:
