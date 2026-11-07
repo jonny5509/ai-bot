@@ -19,6 +19,7 @@ class EmlaLockBot(commands.Bot):
         self.settings = settings
         self.storage = Storage(settings.database_path, settings.credential_encryption_key)
         self.intent_detector = IntentDetector(settings.openai_api_key, settings.openai_model)
+        self.pending_actions = {}
 
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
@@ -28,6 +29,27 @@ class EmlaLockBot(commands.Bot):
         if message.author.bot:
             return
         if self.user not in message.mentions:
+            pending = self.pending_actions.pop(message.author.id, None)
+            if pending:
+                try:
+                    seconds = parse_duration(message.content.strip())
+                except ValueError as exc:
+                    await message.reply(str(exc))
+                    return
+                account = self.storage.get_account(message.author.id)
+                if not account:
+                    await message.reply("Use /link to securely connect your EmlaLock account first.")
+                    return
+                view = ConfirmTimeView(self, message.author.id, "add", seconds)
+                try:
+                    await message.author.send(
+                        f"Please confirm: add {message.content.strip()} to your linked active session? "
+                        "I'll re-check the session before applying.",
+                        view=view)
+                    await message.reply("I've sent you a private confirmation. No change has been made yet.")
+                except discord.Forbidden:
+                    await message.reply("I couldn't DM you. Enable DMs, then use /add for a private confirmation.")
+                return
             await self.process_commands(message)
             return
 
@@ -48,6 +70,8 @@ class EmlaLockBot(commands.Bot):
         if action in {"add_time", "subtract_time"}:
             amount_text = intent.get("amount_text")
             if not amount_text:
+                if action == "add_time":
+                    self.pending_actions[message.author.id] = {"action": "add_time"}
                 await message.reply("How much time do you mean? For example, 2 hours or 30 minutes.")
                 return
             try:
