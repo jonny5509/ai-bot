@@ -4,8 +4,9 @@ from discord.ext import commands
 
 from config import load_settings
 from database.storage import Storage
-from bot.commands import AccountCommands
+from bot.commands import AccountCommands, ConfirmTimeView
 from ai.intent_detection import IntentDetector
+from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
 
 
@@ -13,6 +14,7 @@ class EmlaLockBot(commands.Bot):
     def __init__(self, settings):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.members = True
         super().__init__(command_prefix="!", intents=intents)
         self.settings = settings
         self.storage = Storage(settings.database_path, settings.credential_encryption_key)
@@ -28,11 +30,13 @@ class EmlaLockBot(commands.Bot):
         if self.user not in message.mentions:
             await self.process_commands(message)
             return
+
         content = message.content.replace(f"<@{self.user.id}>", "").replace(
             f"<@!{self.user.id}>", "").strip()
         if not content:
             await message.reply("What would you like help with?")
             return
+
         try:
             intent = await self.intent_detector.detect(content)
         except Exception:
@@ -41,31 +45,96 @@ class EmlaLockBot(commands.Bot):
             return
 
         action = intent.get("intent", "unknown")
-        if action in {"add_time", "subtract_time", "random_add", "random_subtract"}:
+        if action in {"add_time", "subtract_time"}:
             amount_text = intent.get("amount_text")
             if not amount_text:
-                await message.reply("How much time should I use? For example, 2 hours or 30 minutes.")
+                await message.reply("How much time do you mean? For example, 2 hours or 30 minutes.")
                 return
             try:
                 seconds = parse_duration(amount_text)
             except ValueError as exc:
                 await message.reply(str(exc))
                 return
-            await message.reply(
-                f"I understood {amount_text} ({seconds} seconds). I haven't changed anything. "
-                "Account linking, target selection, permission checks, and confirmation must be "
-                "implemented before live time changes can run.")
+
+            target_id = None
+            operation = "add"
+            if action == "subtract_time":
+                operation = "subtract"
+                targets = [m for m in message.mentions if m.id != self.user.id]
+                if not targets:
+                    await message.reply("Who is the wearer? Mention their Discord account so I can check the linked EmlaLock session.")
+                    return
+                target_id = targets[0].id
+                actor = self.storage.get_account(message.author.id)
+                target = self.storage.get_account(target_id)
+                if not actor or not target:
+                    await message.reply("Both you and the wearer need linked EmlaLock accounts. Use /link privately.")
+                    return
+                api = EmlaLockClient()
+                try:
+                    info = await api.info(target["emlalock_user_id"], target["api_key"])
+                    session = info.get("chastitysession") or {}
+                    if int(session.get("status", 0)) != 1 or str(session.get("holderid")) != actor["emlalock_user_id"]:
+                        await message.reply("EmlaLock does not show you as the holder of that active session.")
+                        return
+                except EmlaLockError as exc:
+                    await message.reply(str(exc))
+                    return
+                finally:
+                    await api.close()
+            else:
+                if not self.storage.get_account(message.author.id):
+                    await message.reply("Use /link to securely connect your EmlaLock account first.")
+                    return
+
+            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id)
+            try:
+                target_text = "your linked active session" if operation == "add" else f"<@{target_id}>'s session"
+                await message.author.send(
+                    f"Please confirm: **{operation} {amount_text}** to {target_text}? "
+                    "I'll re-check the current session and permissions before applying.",
+                    view=view)
+                await message.reply("I've sent you a private confirmation in DMs. No change has been made yet.")
+            except discord.Forbidden:
+                await message.reply("I couldn't DM you. Enable server-member DMs, then use /add or /subtract for a private confirmation.")
         elif action == "session_info":
-            await message.reply("Session lookup will be available after account linking and API verification.")
+            account = self.storage.get_account(message.author.id)
+            if not account:
+                await message.reply("Use /link to securely connect your EmlaLock account first.")
+                return
+            api = EmlaLockClient()
+            try:
+                data = await api.info(account["emlalock_user_id"], account["api_key"])
+                session = data.get("chastitysession") or {}
+                if not session:
+                    await message.reply("Your linked account has no active EmlaLock session.")
+                else:
+                    await message.author.send(
+                        f"Your current session is {session.get('chastitysessionid', 'unknown')}. "
+                        f"Status: {session.get('status', 'unknown')}; duration: "
+                        f"{session.get('duration', 'unknown')} seconds.")
+                    await message.reply("I've sent your session details privately.")
+            except EmlaLockError as exc:
+                await message.reply(str(exc))
+            finally:
+                await api.close()
         elif action == "help":
-            await message.reply("Mention me with add 2 hours, subtract 30 minutes, or session info.")
+            await message.reply(
+                "Use /link to connect privately, /session to view your session, "
+                "/add duration to request adding time, or /subtract wearer duration "
+                "for a holder-authorized change. I always ask for confirmation before changing time.")
         else:
-            await message.reply("I can help with EmlaLock time and session requests. What would you like to do?")
+            await message.reply(
+                "I can help with EmlaLock session information and time changes. "
+                "Try mentioning me with 'add 2 hours' or use /help.")
 
 
 def main():
     settings = load_settings()
-    logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     missing = [name for name, value in {
         "DISCORD_TOKEN": settings.discord_token,
         "OPENAI_API_KEY": settings.openai_api_key,
