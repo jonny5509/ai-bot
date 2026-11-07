@@ -425,10 +425,6 @@ class AccountCommands(commands.Cog):
             return
         if wearer and wearer.id == interaction.user.id:
             wearer = None
-        target = actor if wearer is None else self.bot.storage.get_account(wearer.id)
-        if wearer and not target:
-            await interaction.response.send_message("That wearer must link their EmlaLock account using /link first.", ephemeral=True)
-            return
         duration = f"{amount} {unit.value}"
         try:
             seconds = parse_duration(duration)
@@ -437,8 +433,63 @@ class AccountCommands(commands.Cog):
             return
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
+            # For a configured Keyholder role, auto-find held linked sessions
+            # when no wearer was explicitly selected. Only auto-select one match.
+            if wearer is None and interaction.guild:
+                role_settings = self.bot.storage.get_guild_roles(interaction.guild.id)
+                keyholder_role_id = int(role_settings["keyholder_role_id"]) if role_settings else None
+                member = interaction.guild.get_member(interaction.user.id)
+                has_keyholder_role = bool(
+                    member and keyholder_role_id
+                    and any(role.id == keyholder_role_id for role in member.roles)
+                )
+                if has_keyholder_role:
+                    members = [m async for m in interaction.guild.fetch_members(limit=None)]
+                    linked_accounts = self.bot.storage.list_guild_accounts([m.id for m in members])
+                    member_by_id = {m.id: m for m in members}
+                    held_wearers = []
+                    for linked in linked_accounts:
+                        if str(linked["emlalock_user_id"]) == str(actor["emlalock_user_id"]):
+                            continue
+                        try:
+                            wearer_data = await api.info(linked["emlalock_user_id"], linked["api_key"])
+                            candidate = wearer_data.get("chastitysession") or {}
+                            if (int(candidate.get("status", 0)) == 1
+                                    and str(candidate.get("wearerid")) == str(linked["emlalock_user_id"])
+                                    and str(candidate.get("holderid")) == str(actor["emlalock_user_id"])):
+                                linked_member = member_by_id.get(int(linked["discord_user_id"]))
+                                if linked_member:
+                                    held_wearers.append((linked_member, linked, candidate))
+                        except (EmlaLockError, ValueError, TypeError):
+                            continue
+                    if len(held_wearers) == 1:
+                        wearer, _linked_account, _matched_session = held_wearers[0]
+                    elif len(held_wearers) > 1:
+                        choices = "\\n".join(
+                            f"• {discord.utils.escape_markdown(item[0].display_name)} "
+                            f"(session {item[2].get('chastitysessionid', 'unknown')})"
+                            for item in held_wearers
+                        )
+                        await interaction.response.send_message(
+                            "You hold more than one linked active wearer session. "
+                            "Choose the wearer in the wearer option so I don't guess:\\n" + choices,
+                            ephemeral=True)
+                        return
+                    else:
+                        await interaction.response.send_message(
+                            "Your Keyholder role is detected, but I couldn't find a linked active wearer session "
+                            "that lists your EmlaLock account as the holder.",
+                            ephemeral=True)
+                        return
+
+            target = actor if wearer is None else self.bot.storage.get_account(wearer.id)
+            if wearer is not None and not target:
+                await interaction.response.send_message(
+                    "That wearer must link their EmlaLock account using /link first.", ephemeral=True)
+                return
             if target is None:
-                await interaction.response.send_message("The selected wearer has not linked an EmlaLock account.", ephemeral=True)
+                await interaction.response.send_message(
+                    "The selected wearer has not linked an EmlaLock account.", ephemeral=True)
                 return
             data = await api.info(target["emlalock_user_id"], target["api_key"])
             session = data.get("chastitysession") or {}
