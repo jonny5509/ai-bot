@@ -1133,11 +1133,21 @@ class AccountCommands(commands.Cog):
                 guild.id, roles["looking_for_keyholder_role_id"].id,
                 roles["looking_for_wearer_role_id"].id)
             changed, failed = await self.sync_guild_roles(guild)
+            # Post the clickable panel in the same channel so setup is a
+            # single step and users can immediately see how to participate.
+            if interaction.channel and hasattr(interaction.channel, "send"):
+                await interaction.channel.send(
+                    "**EmlaLock adoption matching**\n"
+                    "If your verified active session is missing its wearer or keyholder, use the matching button "
+                    "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
+                    "does not change EmlaLock.",
+                    view=AdoptionPanelView(self.bot))
             await interaction.followup.send(
-                "Adoption roles are configured. They are assigned automatically when a verified active "
-                "EmlaLock session has a wearer but no keyholder, or a keyholder but no wearer. "
+                "Adoption roles are configured and the adoption panel has been posted in this channel. "
+                "Roles are assigned automatically when a verified active EmlaLock session has a wearer but no "
+                "keyholder, or a keyholder but no wearer. "
                 f"Initial sync: {changed} member(s) updated; {failed} failed. "
-                "The bot's top role must be above both adoption roles. Use /adoptionpanel to post the request panel.",
+                "The bot's top role must be above both adoption roles. Use /syncroles to refresh manually.",
                 ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send(
