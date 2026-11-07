@@ -53,6 +53,19 @@ class Storage:
                 dual_role_id TEXT,
                 notification_channel_id TEXT
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS adoption_roles (
+                guild_id TEXT PRIMARY KEY,
+                looking_for_keyholder_role_id TEXT NOT NULL,
+                looking_for_wearer_role_id TEXT NOT NULL
+            )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS adoption_requests (
+                request_id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                requester_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
 
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
         encrypted = self.cipher.encrypt(api_key.encode("utf-8"))
@@ -131,6 +144,51 @@ class Storage:
     def delete_friendlink_message_record(self, message_id: int):
         with self._connect() as db:
             db.execute("DELETE FROM friendlink_messages WHERE message_id=?", (str(message_id),))
+
+
+    def save_adoption_roles(self, guild_id: int, looking_for_keyholder: int, looking_for_wearer: int):
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO adoption_roles
+                   (guild_id, looking_for_keyholder_role_id, looking_for_wearer_role_id)
+                   VALUES (?, ?, ?) ON CONFLICT(guild_id) DO UPDATE SET
+                   looking_for_keyholder_role_id=excluded.looking_for_keyholder_role_id,
+                   looking_for_wearer_role_id=excluded.looking_for_wearer_role_id""",
+                (str(guild_id), str(looking_for_keyholder), str(looking_for_wearer)),
+            )
+
+    def get_adoption_roles(self, guild_id: int):
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM adoption_roles WHERE guild_id=?", (str(guild_id),)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_adoption_request(self, request_id: str, guild_id: int,
+                                requester_id: int, target_id: int):
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO adoption_requests
+                   (request_id, guild_id, requester_id, target_id, status)
+                   VALUES (?, ?, ?, ?, 'pending')""",
+                (request_id, str(guild_id), str(requester_id), str(target_id)),
+            )
+
+    def get_adoption_request(self, request_id: str):
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM adoption_requests WHERE request_id=?", (request_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_adoption_request_status(self, request_id: str, status: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                """UPDATE adoption_requests SET status=?
+                   WHERE request_id=? AND status='pending'""",
+                (status, request_id),
+            )
+        return cursor.rowcount > 0
 
     def set_preferred_session(self, discord_user_id: int, session_id: str):
         with self._connect() as db:
