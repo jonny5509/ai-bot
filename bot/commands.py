@@ -1205,7 +1205,7 @@ class AccountCommands(commands.Cog):
                     "does not change EmlaLock.",
                     view=AdoptionPanelView(self.bot))
             await interaction.followup.send(
-                "Adoption roles are configured and the adoption panel has been posted in this channel. "
+                f"Adoption roles are configured and the panel has been posted in {adoption_channel.mention if adoption_channel else 'no channel'}. "
                 "Roles are assigned automatically when a verified active EmlaLock session has a wearer but no "
                 "keyholder, or a keyholder but no wearer. "
                 f"Initial sync: {changed} member(s) updated; {failed} failed. "
