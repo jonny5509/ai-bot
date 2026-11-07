@@ -6,6 +6,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 
 - Private Discord modal for linking an EmlaLock User ID and API key.
 - Credential verification against the official `/info` endpoint before saving.
+- Automatically sets each linked member's server nickname to their verified EmlaLock username and refreshes it every 5 minutes. This changes only the nickname in that Discord server, not their global Discord username.
 - Fernet encryption for API keys at rest in SQLite.
 - Natural-language requests when the bot is mentioned, with OpenAI intent detection and duration parsing.
 - Private DM confirmation before time-changing requests.
@@ -51,7 +52,7 @@ The setup wizard intentionally listens only on `127.0.0.1`; it is not a public h
 
 1. Create a Discord application and add a bot.
 2. In the Discord Developer Portal, enable **Message Content Intent** and **Server Members Intent**. These are needed for natural-language mentions and role synchronization.
-3. Invite the bot with the `bot` and `applications.commands` scopes. Grant Send Messages, Read Message History, Use Application Commands, and (if using role sync) Manage Roles. Put the bot's highest role above the three session roles.
+3. Invite the bot with the `bot` and `applications.commands` scopes. Grant Send Messages, Read Message History, Use Application Commands, and Manage Nicknames. If using role sync, also grant Manage Roles. The bot's highest role must be above members whose nicknames it should change, as well as above the three session roles.
 4. Install Python 3.11 or newer.
 5. Create a virtual environment and install dependencies:
 
