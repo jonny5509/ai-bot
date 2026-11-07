@@ -26,10 +26,10 @@ class EmlaLockBot(commands.Bot):
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
 
-        # Publish the current command definitions globally. Guild caches are not
-        # populated until the gateway connection is ready, so guild cleanup happens
-        # in on_ready below.
-        await self.tree.sync()
+        # Publish the current command definitions globally on every process start.
+        # Guild-scoped copies are refreshed in on_ready for immediate availability.
+        synced = await self.tree.sync()
+        logging.info("Refreshed %d global application commands", len(synced))
 
     async def on_ready(self):
         # on_ready can fire again after a reconnect; only run this once per process.
@@ -38,11 +38,15 @@ class EmlaLockBot(commands.Bot):
         self._guild_commands_synced = True
         for guild in self.guilds:
             try:
-                # Remove legacy guild-scoped copies. Commands are registered
-                # globally by setup_hook(), so do not copy them back into each guild.
+                # Replace every guild-scoped command with the current global
+                # definitions, then sync so updates are available immediately.
                 self.tree.clear_commands(guild=guild)
-                await self.tree.sync(guild=guild)
-                logging.info("Refreshed application commands for guild %s (%s)", guild.name, guild.id)
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logging.info(
+                    "Refreshed %d application commands for guild %s (%s)",
+                    len(synced), guild.name, guild.id,
+                )
             except discord.HTTPException:
                 logging.exception("Could not refresh application commands for guild %s (%s)", guild.name, guild.id)
 
