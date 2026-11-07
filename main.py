@@ -38,8 +38,9 @@ class EmlaLockBot(commands.Bot):
         self._guild_commands_synced = True
         for guild in self.guilds:
             try:
+                # Remove legacy guild-scoped copies. Commands are registered
+                # globally by setup_hook(), so do not copy them back into each guild.
                 self.tree.clear_commands(guild=guild)
-                self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
                 logging.info("Refreshed application commands for guild %s (%s)", guild.name, guild.id)
             except discord.HTTPException:
