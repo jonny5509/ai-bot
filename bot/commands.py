@@ -798,9 +798,20 @@ class AccountCommands(commands.Cog):
             return
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
-            # For a configured Keyholder role, auto-find held linked sessions
-            # when no wearer was explicitly selected. Only auto-select one match.
-            if wearer is None and interaction.guild:
+            # Prefer the caller's own active wearer session. A wearer who also
+            # has a Keyholder role must not be prompted to select themselves.
+            own_session_active = False
+            if wearer is None:
+                own_data = await api.info(actor["emlalock_user_id"], actor["api_key"])
+                own_session = own_data.get("chastitysession") or {}
+                own_session_active = (
+                    int(own_session.get("status", 0)) == 1
+                    and str(own_session.get("wearerid")) == str(actor["emlalock_user_id"])
+                )
+
+            # Only search linked wearer accounts when the caller has no active
+            # wearer session of their own and is configured as a Keyholder.
+            if wearer is None and not own_session_active and interaction.guild:
                 role_settings = self.bot.storage.get_guild_roles(interaction.guild.id)
                 keyholder_role_id = int(role_settings["keyholder_role_id"]) if role_settings else None
                 member = interaction.guild.get_member(interaction.user.id)
