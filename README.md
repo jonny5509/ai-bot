@@ -15,7 +15,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - `/session` displays the session start timestamp (UTC), elapsed time, remaining time, status, wearer, and keyholder. It shows lock/device information only if EmlaLock includes a corresponding field; otherwise it clearly says the API did not provide it.
 - `/session` displays EmlaLock usernames for the wearer and keyholder when those accounts are linked; otherwise it safely falls back to the EmlaLock User ID.
 - `/add duration` for the linked user's own active wearer session.
-- `/randomadd minimum maximum unit` lets a wearer randomly add time to their own active session once per UTC calendar day. The wearer chooses the minimum and maximum; EmlaLock selects the actual amount. A private confirmation is required, and the daily use is recorded only when the API accepts the change.
+- `/randomtime` lets a wearer once per UTC calendar day randomly add or subtract time from their own active session. The bot chooses the direction and amount (from 1 second up to the time remaining until the session's current end date). Both the wearer and keyholder must have linked EmlaLock accounts. A private confirmation is required, and the daily use is recorded only when the API accepts the change.
 - `/subtract @wearer duration` when the caller's linked EmlaLock account is the holder of the target's active session. The official API holder key parameter is used.
 - Re-checks session status and holder/wearer relationship immediately before a mutation.
 - `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
@@ -28,7 +28,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 
 The official EmlaLock `/info` endpoint returns the authenticated user's information and current session, not a server-wide session directory. This bot therefore only acts on accounts that have linked themselves and on the current session returned for those accounts.
 
-Bulk operations across every EmlaLock session are not enabled: the public API documentation does not provide a general session-enumeration endpoint, and the bot will not guess targets. The wearer-only `/randomadd` command uses EmlaLock's random-add endpoint and is limited to one successful use per EmlaLock account per UTC calendar day.
+Bulk operations across every EmlaLock session are not enabled: the public API documentation does not provide a general session-enumeration endpoint, and the bot will not guess targets. The wearer-only `/randomtime` command requires both wearer and keyholder accounts to be linked. It randomly adds time using EmlaLock's random-add endpoint or subtracts a bot-selected amount using the holder-authorized subtract endpoint. The amount is bounded by the time remaining until the current session end date, and it is limited to one successful use per EmlaLock account per UTC calendar day.
 
 The API requires User ID and API key as GET query parameters over HTTPS. The bot does not log request URLs or credentials. Use a trusted host and keep the database and encryption key private.
 
@@ -107,7 +107,7 @@ The updater downloads the latest `main` branch from GitHub. It leaves `.env`, lo
 | `/account` | Check your linked account |
 | `/session` | View your current session privately |\n| `/friendlink` | Post your own wearer-session Friend Link |\n| `/friendlink_for @wearer` | Keyholder posts a linked wearer's Friend Link when permitted |
 | `/add 2 hours` | Request adding time to your own session |
-| `/randomadd 1 6 hours` | Once-daily random time increase to your own session |
+| `/randomtime` | Once-daily random add or subtract on your own session (requires linked keyholder) |
 | `/subtract @member 30 minutes` | Request holder-authorized subtraction |
 | `/setupchannels` | Automatically create/reuse the EmlaLock category and any missing bot channels; optional channel parameters override destinations |
 | `/setuproles` | Create the three managed session roles |
