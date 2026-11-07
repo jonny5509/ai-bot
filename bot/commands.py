@@ -278,11 +278,12 @@ class AccountCommands(commands.Cog):
     @tasks.loop(minutes=5)
     async def role_sync_loop(self):
         for guild in self.bot.guilds:
-            if self.bot.storage.get_guild_roles(guild.id):
-                try:
-                    await self.sync_guild_roles(guild)
-                except Exception:
-                    continue
+            try:
+                # This also refreshes EmlaLock-based nicknames when role sync
+                # has not been configured for the server.
+                await self.sync_guild_roles(guild)
+            except Exception:
+                continue
 
     @role_sync_loop.before_loop
     async def before_role_sync_loop(self):
