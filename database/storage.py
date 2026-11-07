@@ -36,6 +36,13 @@ class Storage:
                 preferences_json TEXT NOT NULL DEFAULT '{}'
             )""")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
+            db.execute("""CREATE TABLE IF NOT EXISTS friendlink_messages (
+                message_id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                wearer_emlalock_id TEXT NOT NULL
+            )""")
             columns = {row["name"] for row in db.execute("PRAGMA table_info(guild_settings)").fetchall()}
             if "notification_channel_id" not in columns:
                 db.execute("ALTER TABLE guild_settings ADD COLUMN notification_channel_id TEXT")
@@ -97,6 +104,33 @@ class Storage:
             cursor = db.execute("DELETE FROM linked_accounts WHERE discord_user_id=?",
                                 (str(discord_user_id),))
             return cursor.rowcount > 0
+
+    def save_friendlink_message(self, guild_id: int, channel_id: int, message_id: int,
+                                session_id: str, wearer_emlalock_id: str):
+        with self._connect() as db:
+            db.execute(
+                """INSERT OR REPLACE INTO friendlink_messages
+                   (message_id, guild_id, channel_id, session_id, wearer_emlalock_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (str(message_id), str(guild_id), str(channel_id), str(session_id), str(wearer_emlalock_id)),
+            )
+
+    def list_ended_friendlink_messages(self, guild_id: int, active_session_ids: set[str],
+                                      verified_wearer_ids: set[str]) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM friendlink_messages WHERE guild_id=?",
+                (str(guild_id),),
+            ).fetchall()
+        return [
+            dict(row) for row in rows
+            if row["session_id"] not in active_session_ids
+            and row["wearer_emlalock_id"] in verified_wearer_ids
+        ]
+
+    def delete_friendlink_message_record(self, message_id: int):
+        with self._connect() as db:
+            db.execute("DELETE FROM friendlink_messages WHERE message_id=?", (str(message_id),))
 
     def set_preferred_session(self, discord_user_id: int, session_id: str):
         with self._connect() as db:
