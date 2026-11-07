@@ -28,7 +28,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 
 The official EmlaLock `/info` endpoint returns the authenticated user's information and current session, not a server-wide session directory. This bot therefore only acts on accounts that have linked themselves and on the current session returned for those accounts.
 
-Bulk operations across every EmlaLock session are not enabled: the public API documentation does not provide a general session-enumeration endpoint, and the bot will not guess targets. Random-time operations are also not exposed in the current command set.
+Bulk operations across every EmlaLock session are not enabled: the public API documentation does not provide a general session-enumeration endpoint, and the bot will not guess targets. The wearer-only `/randomadd` command uses EmlaLock's random-add endpoint and is limited to one successful use per EmlaLock account per UTC calendar day.
 
 The API requires User ID and API key as GET query parameters over HTTPS. The bot does not log request URLs or credentials. Use a trusted host and keep the database and encryption key private.
 
