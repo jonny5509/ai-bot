@@ -35,6 +35,11 @@ class Storage:
                 preferred_session_id TEXT,
                 preferences_json TEXT NOT NULL DEFAULT '{}'
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS daily_random_add_usage (
+                emlalock_user_id TEXT NOT NULL,
+                usage_date TEXT NOT NULL,
+                PRIMARY KEY (emlalock_user_id, usage_date)
+            )""")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
             db.execute("""CREATE TABLE IF NOT EXISTS friendlink_messages (
                 message_id TEXT PRIMARY KEY,
@@ -67,6 +72,36 @@ class Storage:
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
+
+    @staticmethod
+    def _utc_usage_date():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).date().isoformat()
+
+    def daily_random_add_used(self, emlalock_user_id: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT 1 FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
+                (str(emlalock_user_id), self._utc_usage_date()),
+            ).fetchone()
+        return row is not None
+
+    def claim_daily_random_add(self, emlalock_user_id: str) -> bool:
+        # The composite primary key makes this an atomic one-use-per-UTC-day claim,
+        # including when two confirmation buttons are clicked at nearly the same time.
+        with self._connect() as db:
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO daily_random_add_usage (emlalock_user_id, usage_date) VALUES (?, ?)",
+                (str(emlalock_user_id), self._utc_usage_date()),
+            )
+        return cursor.rowcount == 1
+
+    def release_daily_random_add(self, emlalock_user_id: str):
+        with self._connect() as db:
+            db.execute(
+                "DELETE FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
+                (str(emlalock_user_id), self._utc_usage_date()),
+            )
 
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
         encrypted = self.cipher.encrypt(api_key.encode("utf-8"))
