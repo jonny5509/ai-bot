@@ -489,9 +489,9 @@ class AccountCommands(commands.Cog):
         finally:
             await api.close()
 
-    @app_commands.command(name="add", description="Add time to your own session or a wearer session you hold")
-    @app_commands.describe(wearer="Optional: linked wearer whose session you hold", amount="How many units to add",
-                           unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.command(name="add", description="Add time to your session or a linked wearer session you hold")
+    @app_commands.describe(wearer="Optional: choose a linked wearer session you hold", amount="Amount of time to change",
+                           unit="Time unit: seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
         app_commands.Choice(name="Seconds", value="seconds"),
         app_commands.Choice(name="Minutes", value="minutes"),
@@ -590,13 +590,13 @@ class AccountCommands(commands.Cog):
                                target_id=None if wearer is None else wearer.id,
                                expected_session_id=session_id)
         await interaction.response.send_message(
-            f"Please confirm: **add {duration}** to {target_label} (**{session_id}**)? "
+            f"Please confirm: **Add {duration}** to **{target_label}** (session **{session_id}**)? "
             "The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
 
-    @app_commands.command(name="subtract", description="Subtract time from your own linked wearer or a wearer session you hold")
-    @app_commands.describe(wearer="Optional: linked wearer whose session you hold", amount="How many units to subtract",
-                           unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
+    @app_commands.describe(wearer="Optional: choose a linked wearer session you hold", amount="Amount of time to change",
+                           unit="Time unit: seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
         app_commands.Choice(name="Seconds", value="seconds"),
         app_commands.Choice(name="Minutes", value="minutes"),
@@ -693,8 +693,8 @@ class AccountCommands(commands.Cog):
 
         view = ConfirmTimeView(self.bot, interaction.user.id, "subtract", seconds, wearer.id, session_id)
         await interaction.response.send_message(
-            f"Please confirm: **subtract {duration}** from {wearer.mention}'s active session "
-            f"(**{session_id}**)? The holder relationship will be checked again before applying.",
+            f"Please confirm: **Subtract {duration}** from **{wearer.display_name}** "
+            f"(session **{session_id}**)? The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
