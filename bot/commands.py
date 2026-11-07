@@ -1135,13 +1135,27 @@ class AccountCommands(commands.Cog):
         finally:
             await api.close()
 
+        used_today = self.bot.storage.daily_random_add_count(account["emlalock_user_id"])
+        if used_today >= 2:
+            await interaction.response.send_message(
+                "You've already used /randomtime twice today. You can use it again after 00:00 UTC.",
+                ephemeral=True)
+            return
         view = ConfirmTimeView(
             self.bot, interaction.user.id, "randomtime", 0,
             expected_session_id=session_id)
+        if used_today == 1:
+            request_description = (
+                "This is your **second use today**, so the penalty means the bot will **only add time** (randomly)."
+            )
+        else:
+            request_description = (
+                f"Your first use today will randomly {range_description}. The second use today, if you try again, "
+                "will be forced to add time only."
+            )
         await interaction.response.send_message(
-            f"Please confirm your **one daily random time change**. The bot will randomly choose to {range_description}. "
-            "A linked keyholder account is required for either outcome. The session, keyholder and daily limit "
-            "will be checked again when you confirm. Daily use resets at 00:00 UTC.",
+            f"Please confirm your random time change. {request_description} "
+            "The session, keyholder and daily limit will be checked again when you confirm. Daily use resets at 00:00 UTC.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
