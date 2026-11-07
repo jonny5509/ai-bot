@@ -181,7 +181,7 @@ class WearerChoiceView(discord.ui.View):
         selected = self.choices.get(wearer_id)
         if not selected:
             await interaction.response.send_message(
-                "That wearer is no longer available. Please run /add again.", ephemeral=True)
+                f"That wearer is no longer available. Please run /{self.operation} again.", ephemeral=True)
             return
         member, _account, _old_session = selected
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -203,7 +203,8 @@ class WearerChoiceView(discord.ui.View):
                 self.bot, self.actor_id, self.operation, self.seconds,
                 target_id=member.id, expected_session_id=session_id)
             await interaction.edit_original_response(
-                content=(f"Please confirm: **add {self.duration}** to "
+                content=(f"Please confirm: **{self.operation} {self.duration}** "
+                         f"{'to' if self.operation == 'add' else 'from'} "
                          f"{discord.utils.escape_markdown(member.display_name)}'s session "
                          f"(**{session_id}**)? The session and keyholder permission will be checked again."),
                 view=confirmation)
