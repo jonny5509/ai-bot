@@ -564,10 +564,21 @@ class AccountCommands(commands.Cog):
             url = f"https://www.emlalock.com/#/f/{session_id}"
             message = ("Help with my session" if is_wearer else
                        "Help with the session I am keyholding") + f"\n{url}"
+
+            # Tag the other participant when their EmlaLock account is linked
+            # to a Discord member. The wearer is already the target account
+            # when a keyholder posts; when the wearer posts, look up the holder.
+            if is_wearer:
+                other = self.bot.storage.get_account_by_emlalock_id(str(session.get("holderid") or ""))
+            else:
+                other = target
+            if other and int(other["discord_user_id"]) != interaction.user.id:
+                message += f"\n<@{int(other['discord_user_id'])}>"
+
             if not interaction.channel or not hasattr(interaction.channel, "send"):
                 raise EmlaLockError("I can't post a Friend Link in this channel.")
             await interaction.channel.send(
-                message, allowed_mentions=discord.AllowedMentions.none())
+                message, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
             await interaction.followup.send("Your Friend Link message has been posted in this channel.", ephemeral=True)
         except (EmlaLockError, ValueError, TypeError) as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
