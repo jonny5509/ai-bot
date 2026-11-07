@@ -35,6 +35,7 @@ class Storage:
                 preferred_session_id TEXT,
                 preferences_json TEXT NOT NULL DEFAULT '{}'
             )""")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
             db.execute("""CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id TEXT PRIMARY KEY,
                 wearer_role_id TEXT,
@@ -45,6 +46,10 @@ class Storage:
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
         encrypted = self.cipher.encrypt(api_key.encode("utf-8"))
         with self._connect() as db:
+            existing = db.execute("SELECT discord_user_id FROM linked_accounts WHERE emlalock_user_id=?",
+                                   (emlalock_user_id,)).fetchone()
+            if existing and existing["discord_user_id"] != str(discord_user_id):
+                raise ValueError("That EmlaLock User ID is already linked to another Discord account.")
             db.execute("""INSERT INTO linked_accounts(discord_user_id, emlalock_user_id, encrypted_api_key)
                 VALUES (?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET
                 emlalock_user_id=excluded.emlalock_user_id,
