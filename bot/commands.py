@@ -159,12 +159,43 @@ class AccountCommands(commands.Cog):
             if not session:
                 await interaction.followup.send("Your EmlaLock account has no active session.", ephemeral=True)
                 return
+            # The /info response includes the authenticated account's username.
+            # Look up the counterpart only when that EmlaLock account is also linked
+            # to this bot; otherwise retain the ID as a reliable fallback.
+            own_user = data.get("user") or {}
+            own_id = account["emlalock_user_id"]
+
+            async def display_name(emlalock_id):
+                if not emlalock_id:
+                    return "None"
+                if str(emlalock_id) == str(own_id):
+                    return str(own_user.get("username") or emlalock_id)
+                counterpart = self.bot.storage.get_account_by_emlalock_id(str(emlalock_id))
+                if counterpart:
+                    try:
+                        counterpart_data = await api.info(
+                            counterpart["emlalock_user_id"], counterpart["api_key"])
+                        username = (counterpart_data.get("user") or {}).get("username")
+                        if username:
+                            return str(username)
+                    except EmlaLockError:
+                        pass
+                return str(emlalock_id)
+
+            wearer_name = await display_name(session.get("wearerid"))
+            holder_name = await display_name(session.get("holderid"))
+            duration = session.get("duration", "unknown")
+            try:
+                duration_display = f"{int(duration) // 3600} hours"
+            except (TypeError, ValueError):
+                duration_display = f"{duration} seconds"
+
             await interaction.followup.send(
-                f"**Session:** {session.get('chastitysessionid', 'unknown')}\n"
-                f"**Status:** {session.get('status', 'unknown')}\n"
-                f"**Wearer:** {session.get('wearerid', 'unknown')}\n"
-                f"**Keyholder:** {session.get('holderid') or 'None'}\n"
-                f"**Duration:** {session.get('duration', 'unknown')} seconds",
+                f"**Session:** {session.get('chastitysessionid', 'unknown')}\\n"
+                f"**Status:** {session.get('status', 'unknown')}\\n"
+                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\\n"
+                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}\\n"
+                f"**Duration:** {duration_display}",
                 ephemeral=True)
         except EmlaLockError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
