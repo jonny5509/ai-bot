@@ -10,7 +10,8 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - Fernet encryption for API keys at rest in SQLite.
 - Natural-language requests when the bot is mentioned, with OpenAI intent detection and duration parsing.
 - Private DM confirmation before time-changing requests.
-- `/session` and conversational session lookup.\n- `/friendlink` posts a session Friend Link message; wearers can post their own link, and keyholders can post a linked wearer's link only when the session allows keyholder Friend Link access.
+- `/session` and conversational session lookup.
+- `/friendlink` posts a session Friend Link message; wearers can post their own link, and keyholders can post a linked wearer's link only when the session allows keyholder Friend Link access. The bot tracks its posts and automatically deletes them after the wearer session ends (checked during the 5-minute account sync).
 - `/session` displays the session start timestamp (UTC), elapsed time, remaining time, status, wearer, and keyholder. It shows lock/device information only if EmlaLock includes a corresponding field; otherwise it clearly says the API did not provide it.
 - `/session` displays EmlaLock usernames for the wearer and keyholder when those accounts are linked; otherwise it safely falls back to the EmlaLock User ID.
 - `/add duration` for the linked user's own active wearer session.
