@@ -162,10 +162,13 @@ class ConfirmTimeView(discord.ui.View):
                     random_initial_duration = int(float(session.get("duration")))
                 except (TypeError, ValueError, OverflowError):
                     random_initial_duration = None
-                if not self.bot.storage.claim_daily_random_add(target["emlalock_user_id"]):
-                    raise EmlaLockError("You have already used your daily random time change. You can use it again after 00:00 UTC.")
+                random_use_number = self.bot.storage.claim_daily_random_add(target["emlalock_user_id"])
+                if not random_use_number:
+                    raise EmlaLockError("You've already used /randomtime twice today. Your daily uses reset at 00:00 UTC.")
                 random_claimed = True
-                if secrets.randbelow(2) == 0:
+                # First confirmed use is random. The second use is the penalty:
+                # it is forced to add time, regardless of the random outcome.
+                if random_use_number == 2 or secrets.randbelow(2) == 0:
                     self.random_direction = "add"
                     result = await api.add_random_time(
                         target["emlalock_user_id"], target["api_key"],
