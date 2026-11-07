@@ -88,13 +88,18 @@ class ConfirmTimeView(discord.ui.View):
             if not actor:
                 raise EmlaLockError("Your EmlaLock account is no longer linked.")
             if self.operation == "add":
-                fresh = await api.info(actor["emlalock_user_id"], actor["api_key"])
+                target = actor if self.target_id is None else self.bot.storage.get_account(self.target_id)
+                if not target:
+                    raise EmlaLockError("The selected wearer has not linked an EmlaLock account.")
+                fresh = await api.info(target["emlalock_user_id"], target["api_key"])
                 session = fresh.get("chastitysession") or {}
-                if str(session.get("wearerid")) != actor["emlalock_user_id"] or int(session.get("status", 0)) != 1:
-                    raise EmlaLockError("Your linked account does not currently have an active wearer session.")
+                if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != str(target["emlalock_user_id"]):
+                    raise EmlaLockError("The selected account does not currently have an active wearer session.")
+                if self.target_id is not None and str(session.get("holderid")) != str(actor["emlalock_user_id"]):
+                    raise EmlaLockError("EmlaLock no longer shows your linked account as the keyholder for this wearer.")
                 if self.expected_session_id and str(session.get("chastitysessionid")) != self.expected_session_id:
-                    raise EmlaLockError("Your active session changed after the request. Please submit it again.")
-                result = await api.add_time(actor["emlalock_user_id"], actor["api_key"], self.seconds,
+                    raise EmlaLockError("The wearer session changed after the request. Please submit it again.")
+                result = await api.add_time(target["emlalock_user_id"], target["api_key"], self.seconds,
                                             "Discord assistant")
             else:
                 target = self.bot.storage.get_account(self.target_id)
@@ -402,8 +407,9 @@ class AccountCommands(commands.Cog):
         finally:
             await api.close()
 
-    @app_commands.command(name="add", description="Request adding time to your own active session")
-    @app_commands.describe(amount="How many units to add", unit="Choose seconds, minutes, hours, days, or weeks")
+    @app_commands.command(name="add", description="Add time to your own session or a wearer session you hold")
+    @app_commands.describe(wearer="Optional: linked wearer whose session you hold", amount="How many units to add",
+                           unit="Choose seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
         app_commands.Choice(name="Seconds", value="seconds"),
         app_commands.Choice(name="Minutes", value="minutes"),
@@ -411,10 +417,17 @@ class AccountCommands(commands.Cog):
         app_commands.Choice(name="Days", value="days"),
         app_commands.Choice(name="Weeks", value="weeks"),
     ])
-    async def add(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100000], unit: app_commands.Choice[str]):
-        account = self.bot.storage.get_account(interaction.user.id)
-        if not account:
-            await interaction.response.send_message("Use /link first.", ephemeral=True)
+    async def add(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100000],
+                  unit: app_commands.Choice[str], wearer: discord.Member | None = None):
+        actor = self.bot.storage.get_account(interaction.user.id)
+        if not actor:
+            await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
+            return
+        if wearer and wearer.id == interaction.user.id:
+            wearer = None
+        target = actor if wearer is None else self.bot.storage.get_account(wearer.id)
+        if wearer and not target:
+            await interaction.response.send_message("That wearer must link their EmlaLock account using /link first.", ephemeral=True)
             return
         duration = f"{amount} {unit.value}"
         try:
@@ -424,22 +437,32 @@ class AccountCommands(commands.Cog):
             return
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
-            data = await api.info(account["emlalock_user_id"], account["api_key"])
+            if target is None:
+                await interaction.response.send_message("The selected wearer has not linked an EmlaLock account.", ephemeral=True)
+                return
+            data = await api.info(target["emlalock_user_id"], target["api_key"])
             session = data.get("chastitysession") or {}
-            if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != account["emlalock_user_id"]:
-                await interaction.response.send_message("Your linked account does not have an active wearer session.", ephemeral=True)
+            if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != str(target["emlalock_user_id"]):
+                await interaction.response.send_message("That linked account does not have an active wearer session.", ephemeral=True)
+                return
+            if wearer is not None and str(session.get("holderid")) != str(actor["emlalock_user_id"]):
+                await interaction.response.send_message(
+                    "EmlaLock does not show your linked account as the keyholder for that active wearer session.",
+                    ephemeral=True)
                 return
             session_id = str(session.get("chastitysessionid", ""))
-        except EmlaLockError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
+        except (EmlaLockError, ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"Could not verify the active session: {exc}", ephemeral=True)
             return
         finally:
             await api.close()
+        target_label = "your session" if wearer is None else f"{wearer.display_name}'s session"
         view = ConfirmTimeView(self.bot, interaction.user.id, "add", seconds,
+                               target_id=None if wearer is None else wearer.id,
                                expected_session_id=session_id)
         await interaction.response.send_message(
-            f"Please confirm: **add {duration}** to session **{session_id}**? "
-            "The same session and permissions will be checked again before applying.",
+            f"Please confirm: **add {duration}** to {target_label} (**{session_id}**)? "
+            "The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Request subtracting time from a linked wearer you hold")
