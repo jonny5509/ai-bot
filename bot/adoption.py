@@ -23,7 +23,8 @@ class AdoptionDecisionButton(discord.ui.DynamicItem[discord.ui.Button],
         return cls(match.group("action"), match.group("request_id"))
 
     async def callback(self, interaction: discord.Interaction):
-        request = self.view.bot.storage.get_adoption_request(self.request_id) if self.view else None
+        bot = interaction.client
+        request = bot.storage.get_adoption_request(self.request_id)
         if not request or request["status"] != "pending":
             await interaction.response.send_message(
                 "This adoption request is no longer pending.", ephemeral=True)
@@ -34,13 +35,11 @@ class AdoptionDecisionButton(discord.ui.DynamicItem[discord.ui.Button],
             return
 
         status = "accepted" if self.action == "accept" else "declined"
-        if not self.view.bot.storage.set_adoption_request_status(self.request_id, status):
+        if not bot.storage.set_adoption_request_status(self.request_id, status):
             await interaction.response.send_message(
                 "This request has already been answered.", ephemeral=True)
             return
 
-        for child in self.view.children:
-            child.disabled = True
         if status == "accepted":
             text = (
                 "Adoption request accepted. You can now coordinate with each other. "
@@ -48,9 +47,7 @@ class AdoptionDecisionButton(discord.ui.DynamicItem[discord.ui.Button],
             )
         else:
             text = "Adoption request declined. No EmlaLock changes were made."
-        await interaction.response.edit_message(content=text, view=self.view)
-
-        bot = self.view.bot
+        await interaction.response.edit_message(content=text, view=None)
         requester = bot.get_user(int(request["requester_id"]))
         if requester is None:
             try:
