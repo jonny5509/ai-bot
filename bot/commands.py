@@ -267,14 +267,56 @@ class AccountCommands(commands.Cog):
         try:
             data = await api.info(account["emlalock_user_id"], account["api_key"])
             session = data.get("chastitysession")
+            own_user = data.get("user") or {}
+            own_id = account["emlalock_user_id"]
+
+            # A keyholder's own /info response may not include the wearer's
+            # session. In a server, look through linked members for active
+            # sessions whose holderid matches this keyholder's EmlaLock ID.
+            if not session and interaction.guild:
+                try:
+                    guild_members = [member async for member in interaction.guild.fetch_members(limit=None)]
+                    linked_accounts = self.bot.storage.list_guild_accounts(
+                        [member.id for member in guild_members])
+                    held_sessions = []
+                    for linked in linked_accounts:
+                        if str(linked["emlalock_user_id"]) == str(own_id):
+                            continue
+                        try:
+                            wearer_data = await api.info(
+                                linked["emlalock_user_id"], linked["api_key"])
+                            candidate = wearer_data.get("chastitysession") or {}
+                            if (int(candidate.get("status", 0)) == 1
+                                    and str(candidate.get("holderid")) == str(own_id)):
+                                held_sessions.append((candidate, linked))
+                        except (EmlaLockError, ValueError, TypeError):
+                            continue
+                    if len(held_sessions) == 1:
+                        session, _wearer_account = held_sessions[0]
+                    elif len(held_sessions) > 1:
+                        choices = "\\n".join(
+                            f"• Session **{item[0].get('chastitysessionid', 'unknown')}** "
+                            f"(wearer EmlaLock ID: {item[1]['emlalock_user_id']})"
+                            for item in held_sessions)
+                        await interaction.followup.send(
+                            "I found multiple active sessions held by your linked account. "
+                            "I won't guess which one you mean:\\n" + choices,
+                            ephemeral=True)
+                        return
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
             if not session:
-                await interaction.followup.send("Your EmlaLock account has no active session.", ephemeral=True)
+                message = "Your EmlaLock account has no active wearer session."
+                if interaction.guild:
+                    message += " I also couldn't find an active session for a linked wearer that lists you as keyholder."
+                else:
+                    message += " Use /session in the Discord server to check linked wearer sessions you hold."
+                await interaction.followup.send(message, ephemeral=True)
                 return
             # The /info response includes the authenticated account's username.
             # Look up the counterpart only when that EmlaLock account is also linked
             # to this bot; otherwise retain the ID as a reliable fallback.
-            own_user = data.get("user") or {}
-            own_id = account["emlalock_user_id"]
 
             async def display_name(emlalock_id):
                 if not emlalock_id:
