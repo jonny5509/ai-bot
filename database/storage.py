@@ -53,6 +53,7 @@ class Storage:
                 dual_role_id TEXT,
                 notification_channel_id TEXT
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS guild_channels (guild_id TEXT NOT NULL, purpose TEXT NOT NULL, channel_id TEXT, PRIMARY KEY (guild_id, purpose))""")
             db.execute("""CREATE TABLE IF NOT EXISTS adoption_roles (
                 guild_id TEXT PRIMARY KEY,
                 looking_for_keyholder_role_id TEXT NOT NULL,
@@ -219,3 +220,15 @@ class Storage:
                    notification_channel_id=excluded.notification_channel_id""",
                 (str(guild_id), str(channel_id) if channel_id is not None else None),
             )
+
+
+    def set_guild_channel(self, guild_id: int, purpose: str, channel_id: int | None):
+        if purpose not in {"commands", "sessions", "adoption", "friendlinks", "logs"}:
+            raise ValueError("Unknown channel purpose")
+        with self._connect() as db:
+            db.execute("INSERT INTO guild_channels(guild_id,purpose,channel_id) VALUES(?,?,?) ON CONFLICT(guild_id,purpose) DO UPDATE SET channel_id=excluded.channel_id", (str(guild_id), purpose, str(channel_id) if channel_id is not None else None))
+
+    def get_guild_channel(self, guild_id: int, purpose: str):
+        with self._connect() as db:
+            row = db.execute("SELECT channel_id FROM guild_channels WHERE guild_id=? AND purpose=?", (str(guild_id), purpose)).fetchone()
+        return int(row["channel_id"]) if row and row["channel_id"] else None
