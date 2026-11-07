@@ -15,6 +15,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - `/session` displays the session start timestamp (UTC), elapsed time, remaining time, status, wearer, and keyholder. It shows lock/device information only if EmlaLock includes a corresponding field; otherwise it clearly says the API did not provide it.
 - `/session` displays EmlaLock usernames for the wearer and keyholder when those accounts are linked; otherwise it safely falls back to the EmlaLock User ID.
 - `/add duration` for the linked user's own active wearer session.
+- `/randomadd minimum maximum unit` lets a wearer randomly add time to their own active session once per UTC calendar day. The wearer chooses the minimum and maximum; EmlaLock selects the actual amount. A private confirmation is required, and the daily use is recorded only when the API accepts the change.
 - `/subtract @wearer duration` when the caller's linked EmlaLock account is the holder of the target's active session. The official API holder key parameter is used.
 - Re-checks session status and holder/wearer relationship immediately before a mutation.
 - `/setuproles` and `/syncroles` for Wearer, Keyholder, and Dual Role roles. Roles are checked immediately after linking, when a member joins, and automatically every 5 minutes. Only those bot-managed roles are changed.
@@ -106,6 +107,7 @@ The updater downloads the latest `main` branch from GitHub. It leaves `.env`, lo
 | `/account` | Check your linked account |
 | `/session` | View your current session privately |\n| `/friendlink` | Post your own wearer-session Friend Link |\n| `/friendlink_for @wearer` | Keyholder posts a linked wearer's Friend Link when permitted |
 | `/add 2 hours` | Request adding time to your own session |
+| `/randomadd 1 6 hours` | Once-daily random time increase to your own session |
 | `/subtract @member 30 minutes` | Request holder-authorized subtraction |
 | `/setupchannels` | Automatically create/reuse the EmlaLock category and any missing bot channels; optional channel parameters override destinations |
 | `/setuproles` | Create the three managed session roles |
