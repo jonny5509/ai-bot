@@ -326,6 +326,8 @@ class AccountCommands(commands.Cog):
             return False
         channel_id = self.bot.storage.get_guild_channel(interaction.guild.id, purpose)
         channel = interaction.guild.get_channel(channel_id) if channel_id else None
+        if channel is None and purpose == "commands":
+            channel = interaction.channel
         if channel is None or not hasattr(channel, "send"):
             return False
         await channel.send(content)
