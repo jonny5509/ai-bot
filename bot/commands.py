@@ -6,6 +6,7 @@ from discord.ext import commands, tasks
 
 from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
+from bot.adoption import AdoptionPanelView
 
 
 class LinkAccountModal(discord.ui.Modal, title="Link your EmlaLock account"):
@@ -445,36 +446,75 @@ class AccountCommands(commands.Cog):
                         exc.text,
                     )
 
-        if not settings:
-            return (0, 0)
+        adoption_settings = self.bot.storage.get_adoption_roles(guild.id)
+        session_roles = {}
+        if settings:
+            role_ids = {
+                "wearer": int(settings["wearer_role_id"]),
+                "holder": int(settings["keyholder_role_id"]),
+                "dual": int(settings["dual_role_id"]),
+            }
+            session_roles = {key: guild.get_role(value) for key, value in role_ids.items()}
+            if any(role is None for role in session_roles.values()):
+                return (0, len(members))
 
-        role_ids = {
-            "wearer": int(settings["wearer_role_id"]),
-            "holder": int(settings["keyholder_role_id"]),
-            "dual": int(settings["dual_role_id"]),
-        }
-        roles = {key: guild.get_role(value) for key, value in role_ids.items()}
-        if any(role is None for role in roles.values()):
-            return (0, len(members))
+        adoption_roles = {}
+        if adoption_settings:
+            adoption_role_ids = {
+                "looking_for_keyholder": int(adoption_settings["looking_for_keyholder_role_id"]),
+                "looking_for_wearer": int(adoption_settings["looking_for_wearer_role_id"]),
+            }
+            adoption_roles = {
+                key: guild.get_role(value) for key, value in adoption_role_ids.items()
+            }
+            adoption_roles = {key: role for key, role in adoption_roles.items() if role is not None}
+
+        if not session_roles and not adoption_roles:
+            return (0, 0)
 
         linked = {a["discord_user_id"]: a for a in accounts}
         changed = 0
         failed = 0
-        managed = set(roles.values())
+        managed = set(session_roles.values()) | set(adoption_roles.values())
         for member in members:
             account = linked.get(member.id)
             if account and account["emlalock_user_id"] not in verified_user_ids:
                 continue
             uid = account["emlalock_user_id"] if account else None
-            is_wearer = bool(uid) and any(str(session.get("wearerid")) == uid for session in active_sessions)
-            is_holder = bool(uid) and any(str(session.get("holderid")) == uid for session in active_sessions)
+            wearer_sessions = [
+                session for session in active_sessions
+                if uid and str(session.get("wearerid") or "").strip() == uid
+            ]
+            holder_sessions = [
+                session for session in active_sessions
+                if uid and str(session.get("holderid") or "").strip() == uid
+            ]
+            is_wearer = bool(wearer_sessions)
+            is_holder = bool(holder_sessions)
             desired = set()
-            if is_wearer:
-                desired.add(roles["wearer"])
-            if is_holder:
-                desired.add(roles["holder"])
-            if is_wearer and is_holder:
-                desired.add(roles["dual"])
+            if session_roles:
+                if is_wearer:
+                    desired.add(session_roles["wearer"])
+                if is_holder:
+                    desired.add(session_roles["holder"])
+                if is_wearer and is_holder:
+                    desired.add(session_roles["dual"])
+
+            # Adoption roles are driven by the verified active EmlaLock session:
+            # a wearer with no holder seeks a keyholder; a holder with no wearer seeks a wearer.
+            missing_holder = is_wearer and any(
+                not str(session.get("holderid") or "").strip()
+                for session in wearer_sessions
+            )
+            missing_wearer = is_holder and any(
+                not str(session.get("wearerid") or "").strip()
+                for session in holder_sessions
+            )
+            if "looking_for_keyholder" in adoption_roles and missing_holder:
+                desired.add(adoption_roles["looking_for_keyholder"])
+            if "looking_for_wearer" in adoption_roles and missing_wearer:
+                desired.add(adoption_roles["looking_for_wearer"])
+
             current = set(member.roles)
             remove = (current & managed) - desired
             add = desired - current
@@ -487,7 +527,7 @@ class AccountCommands(commands.Cog):
                     changed += 1
                 except discord.Forbidden:
                     failed += 1
-        return changed, failed
+
 
     @app_commands.command(name="link", description="Securely link your EmlaLock account")
     async def link(self, interaction: discord.Interaction):
@@ -1063,13 +1103,69 @@ class AccountCommands(commands.Cog):
             f"Role sync complete. Updated {changed} member(s); {failed} could not be updated. "
             "Automatic checks now run every 5 minutes.", ephemeral=True)
 
+
+    @app_commands.command(name="setupadoption", description="Create automatic Looking for Keyholder and Looking for Wearer roles")
+    @app_commands.default_permissions(manage_roles=True)
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def setupadoption(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("Use this in a server.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            role_specs = (
+                ("Looking for Keyholder", "looking_for_keyholder_role_id"),
+                ("Looking for Wearer", "looking_for_wearer_role_id"),
+            )
+            roles = {}
+            for name, key in role_specs:
+                role = discord.utils.get(guild.roles, name=name)
+                if role is None:
+                    role = await guild.create_role(
+                        name=name, reason="EmlaLock adoption matching roles")
+                roles[key] = role
+            self.bot.storage.save_adoption_roles(
+                guild.id, roles["looking_for_keyholder_role_id"].id,
+                roles["looking_for_wearer_role_id"].id)
+            changed, failed = await self.sync_guild_roles(guild)
+            await interaction.followup.send(
+                "Adoption roles are configured. They are assigned automatically when a verified active "
+                "EmlaLock session has a wearer but no keyholder, or a keyholder but no wearer. "
+                f"Initial sync: {changed} member(s) updated; {failed} failed. "
+                "The bot's top role must be above both adoption roles. Use /adoptionpanel to post the request panel.",
+                ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I need Manage Roles permission and a role position above the adoption roles.", ephemeral=True)
+
+    @app_commands.command(name="adoptionpanel", description="Post the adoption request panel in this channel")
+    @app_commands.default_permissions(manage_roles=True)
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def adoptionpanel(self, interaction: discord.Interaction):
+        if not interaction.guild or not interaction.channel or not hasattr(interaction.channel, "send"):
+            await interaction.response.send_message("Use this command in a server text channel.", ephemeral=True)
+            return
+        if not self.bot.storage.get_adoption_roles(interaction.guild.id):
+            await interaction.response.send_message("Run /setupadoption first.", ephemeral=True)
+            return
+        await interaction.channel.send(
+            "**EmlaLock adoption matching**\n"
+            "If your verified active session is missing its wearer or keyholder, use the matching button "
+            "to find someone with the opposite adoption role. Requests are sent privately; accepting one "
+            "does not change EmlaLock.",
+            view=AdoptionPanelView(self.bot))
+        await interaction.response.send_message("Adoption panel posted in this channel.", ephemeral=True)
+
     @app_commands.command(name="help", description="Show bot usage")
     async def help_command(self, interaction: discord.Interaction):
         await interaction.response.send_message(
             "**EmlaLock assistant**\n/link — privately connect your account\n"
             "/session — view your current session\n/friendlink — post your own wearer session Friend Link\n/friendlink_for @wearer — keyholder posts a linked wearer's Friend Link\n/add duration — confirm adding time to your own session\n"
             "/subtract wearer duration — holder-authorized subtraction\n"
-            "/setuproles and /syncroles — configure and synchronize server roles\n"
+            "/setuproles and /syncroles — configure and synchronize session roles\n"
+            "/setupadoption — create automatic adoption matching roles\n"
+            "/adoptionpanel — post the clickable adoption request panel\n"
             "/unlink — disconnect your account\n\n"
             "You can also mention the bot in natural language for guidance. Time-changing actions always require confirmation.",
             ephemeral=True)
