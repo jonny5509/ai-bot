@@ -21,7 +21,7 @@ class DiscordLogHandler(logging.Handler):
     def emit(self, record):
         if not self.bot.is_ready():
             return
-        message = self.format(record)
+        message = re.sub(r"([?&](?:userid|apikey|holderapikey)=)[^&\\s\"'<>]*", r"\\1[REDACTED]", self.format(record), flags=re.IGNORECASE)
         for guild in self.bot.guilds:
             channel_id = self.bot.storage.get_guild_channel(guild.id, "logs")
             channel = guild.get_channel(channel_id) if channel_id else None
@@ -144,6 +144,12 @@ class EmlaLockBot(commands.Bot):
                 return
             await self.process_commands(message)
             return
+
+        if message.guild:
+            commands_channel_id = self.storage.get_guild_channel(message.guild.id, "commands")
+            if commands_channel_id and message.channel.id != commands_channel_id:
+                await message.reply(f"Please use bot commands in <#{commands_channel_id}>.")
+                return
 
         content = message.content.replace(f"<@{self.user.id}>", "").replace(
             f"<@!{self.user.id}>", "").strip()
