@@ -126,7 +126,8 @@ class EmlaLockBot(commands.Bot):
                     await message.reply("Use /link to securely connect your EmlaLock account first.")
                     return
 
-            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id,\n                                   session_id if operation == "subtract" else None)
+            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id,
+                                   session_id if operation == "subtract" else None)
             try:
                 target_text = "your linked active session" if operation == "add" else f"<@{target_id}>'s session"
                 await message.author.send(
