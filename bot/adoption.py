@@ -126,6 +126,7 @@ class AdoptionCandidateView(discord.ui.View):
                 ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
         request_id = uuid.uuid4().hex[:16]
         self.bot.storage.create_adoption_request(
             request_id, interaction.guild.id, self.requester_id, target_id)
@@ -138,17 +139,17 @@ class AdoptionCandidateView(discord.ui.View):
             )
         except discord.Forbidden:
             self.bot.storage.set_adoption_request_status(request_id, "undeliverable")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I couldn't DM that member. They may need to enable server-member DMs. No request was sent.",
                 ephemeral=True)
             return
         except discord.HTTPException:
             self.bot.storage.set_adoption_request_status(request_id, "undeliverable")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Discord couldn't deliver the request. Please try again later.", ephemeral=True)
             return
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Adoption request sent privately to {target.mention}. I'll let you know when they respond.",
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
