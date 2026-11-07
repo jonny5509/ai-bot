@@ -64,6 +64,10 @@ The API requires User ID and API key as GET query parameters over HTTPS. The bot
 
 10. In your server, run `/link` and submit your EmlaLock credentials in the private modal. Use `/account` to check link status.
 
+### Docker deployment
+
+After creating `.env`, run `docker compose up -d --build`. Docker Compose keeps the SQLite database in a named volume. Back up that volume and the `CREDENTIAL_ENCRYPTION_KEY` together.
+
 ## Commands
 
 | Command | Purpose |
