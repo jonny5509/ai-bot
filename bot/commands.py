@@ -592,6 +592,7 @@ class AccountCommands(commands.Cog):
         await self._post_friendlink(interaction)
 
     @app_commands.command(name="friendlink_for", description="Keyholders: post a linked wearer's Friend Link")
+    @app_commands.default_permissions(discord.Permissions.none())
     @app_commands.describe(wearer="The linked wearer whose active session you hold")
     async def friendlink_for(self, interaction: discord.Interaction, wearer: discord.Member):
         if wearer.id == interaction.user.id:
@@ -967,6 +968,7 @@ class AccountCommands(commands.Cog):
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
+    @app_commands.default_permissions(discord.Permissions.none())
     @app_commands.describe(wearer="Optional: choose a linked wearer session you hold", amount="Amount of time to change",
                            unit="Time unit: seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
