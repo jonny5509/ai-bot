@@ -26,8 +26,8 @@ class EmlaLockBot(commands.Bot):
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
 
-        # Publish the current command definitions globally on every process start.
-        # Guild-scoped copies are refreshed in on_ready for immediate availability.
+        # Keep commands global only. Publishing guild copies as well makes
+        # Discord show duplicate entries for the same slash commands.
         synced = await self.tree.sync()
         logging.info("Refreshed %d global application commands", len(synced))
 
@@ -38,14 +38,13 @@ class EmlaLockBot(commands.Bot):
         self._guild_commands_synced = True
         for guild in self.guilds:
             try:
-                # Replace every guild-scoped command with the current global
-                # definitions, then sync so updates are available immediately.
+                # Remove any legacy guild-scoped copies. Commands are
+                # registered globally only, so do not copy them back here.
                 self.tree.clear_commands(guild=guild)
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
+                await self.tree.sync(guild=guild)
                 logging.info(
-                    "Refreshed %d application commands for guild %s (%s)",
-                    len(synced), guild.name, guild.id,
+                    "Removed legacy guild-scoped commands for %s (%s)",
+                    guild.name, guild.id,
                 )
             except discord.HTTPException:
                 logging.exception("Could not refresh application commands for guild %s (%s)", guild.name, guild.id)
