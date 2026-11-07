@@ -1078,6 +1078,7 @@ class AccountCommands(commands.Cog):
                 f"Session roles are configured and an initial sync has run ({changed} member(s) updated; "
                 f"{failed} failed). Automatic checks now run every 5 minutes. "
                 "The bot's top role must be above these roles.", ephemeral=True)
+            await self.bot._sync_guild_commands(interaction.guild)
         except discord.Forbidden:
             await interaction.followup.send("I need Manage Roles permission and a role position above the roles to manage.", ephemeral=True)
 
@@ -1149,6 +1150,7 @@ class AccountCommands(commands.Cog):
                 f"Initial sync: {changed} member(s) updated; {failed} failed. "
                 "The bot's top role must be above both adoption roles. Use /syncroles to refresh manually.",
                 ephemeral=True)
+            await self.bot._sync_guild_commands(guild)
         except discord.Forbidden:
             await interaction.followup.send(
                 "I need Manage Roles permission and a role position above the adoption roles.", ephemeral=True)
