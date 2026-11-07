@@ -6,6 +6,7 @@ from discord.ext import commands
 from config import load_settings
 from database.storage import Storage
 from bot.commands import AccountCommands, ConfirmTimeView
+from bot.adoption import AdoptionPanelView, AdoptionDecisionButton
 from ai.intent_detection import IntentDetector
 from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
@@ -25,6 +26,9 @@ class EmlaLockBot(commands.Bot):
 
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
+        # Persistent adoption panels and request buttons continue working after restarts.
+        self.add_view(AdoptionPanelView(self))
+        self.add_dynamic_items(AdoptionDecisionButton)
 
         # Keep commands global only. Publishing guild copies as well makes
         # Discord show duplicate entries for the same slash commands.
