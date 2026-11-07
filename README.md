@@ -34,6 +34,19 @@ The API requires User ID and API key as GET query parameters over HTTPS. The bot
 
 ## Setup
 
+### Guided web setup (recommended)
+
+1. Clone the repository and install dependencies with `pip install -r requirements.txt`.
+2. Run `python setup.py`.
+3. Open `http://127.0.0.1:8765` in a browser on the same computer.
+4. Enter your Discord bot token and OpenAI API key, choose the model, and save. The wizard generates the Fernet encryption key automatically and writes secrets to `.env` with owner-only file permissions where supported.
+5. Stop the wizard with Ctrl+C, then start the bot using `python main.py`.
+6. In Discord, use `/link` to connect each member's EmlaLock account privately.
+
+The setup wizard intentionally listens only on `127.0.0.1`; it is not a public hosted dashboard. It never displays saved credentials again and does not log submitted form values. To change settings later, stop the bot and run `python setup.py` again.
+
+### Manual setup
+
 1. Create a Discord application and add a bot.
 2. In the Discord Developer Portal, enable **Message Content Intent** and **Server Members Intent**. These are needed for natural-language mentions and role synchronization.
 3. Invite the bot with the `bot` and `applications.commands` scopes. Grant Send Messages, Read Message History, Use Application Commands, and (if using role sync) Manage Roles. Put the bot's highest role above the three session roles.
