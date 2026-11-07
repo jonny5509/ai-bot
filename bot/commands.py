@@ -223,12 +223,12 @@ class AccountCommands(commands.Cog):
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
     @app_commands.checks.has_permissions(manage_roles=True)
-    async def setuproles(self, interaction: discord.Interaction):
+    async def setuproles(self, interaction: discord.Interaction, wearer_role_name: str = "Wearer",\n                         keyholder_role_name: str = "Keyholder", dual_role_name: str = "Dual Role"):
         if not interaction.guild:
             await interaction.response.send_message("Use this in a server.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        names = ("Wearer", "Keyholder", "Dual Role")
+        names = (wearer_role_name[:100], keyholder_role_name[:100], dual_role_name[:100])
         roles = []
         try:
             for name in names:
