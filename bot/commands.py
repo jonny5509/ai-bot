@@ -117,6 +117,9 @@ class ConfirmTimeView(discord.ui.View):
                 holder = self.bot.storage.get_account_by_emlalock_id(holder_id) if holder_id else None
                 if not holder:
                     raise EmlaLockError("A linked keyholder account is required. No time change was made.")
+                holder_check = await api.info(holder["emlalock_user_id"], holder["api_key"])
+                if str(holder_check.get("user", {}).get("userid", "")) != holder_id:
+                    raise EmlaLockError("The linked keyholder account could not be verified. No time change was made.")
                 try:
                     random_initial_end = int(float(session.get("enddate")))
                 except (TypeError, ValueError, OverflowError):
