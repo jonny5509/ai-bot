@@ -191,10 +191,10 @@ class AccountCommands(commands.Cog):
                 duration_display = f"{duration} seconds"
 
             await interaction.followup.send(
-                f"**Session:** {session.get('chastitysessionid', 'unknown')}\\n"
-                f"**Status:** {session.get('status', 'unknown')}\\n"
-                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\\n"
-                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}\\n"
+                f"**Session:** {session.get('chastitysessionid', 'unknown')}\n"
+                f"**Status:** {session.get('status', 'unknown')}\n"
+                f"**Wearer:** {discord.utils.escape_markdown(wearer_name)}\n"
+                f"**Keyholder:** {discord.utils.escape_markdown(holder_name)}\n"
                 f"**Duration:** {duration_display}",
                 ephemeral=True)
         except EmlaLockError as exc:
