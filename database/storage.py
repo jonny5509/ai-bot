@@ -94,8 +94,8 @@ class Storage:
         return self.daily_random_add_count(emlalock_user_id) >= 2
 
     def claim_daily_random_add(self, emlalock_user_id: str) -> int:
-        # Atomically reserve one of two daily uses. The second use is the add-only
-        # penalty; a third confirmed use is rejected. Failed API calls are released.
+        # Atomically count each confirmed daily use. The first is random; later uses
+        # are handled as add-only by the command. Failed API calls are released.
         user_id = str(emlalock_user_id)
         usage_date = self._utc_usage_date()
         with self._connect() as db:
@@ -107,16 +107,14 @@ class Storage:
                 return 1
             cursor = db.execute(
                 "UPDATE daily_random_add_usage SET use_count=use_count+1 "
-                "WHERE emlalock_user_id=? AND usage_date=? AND use_count<2",
+                "WHERE emlalock_user_id=? AND usage_date=?",
                 (user_id, usage_date),
             )
-            if cursor.rowcount != 1:
-                return 0
             row = db.execute(
                 "SELECT use_count FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
                 (user_id, usage_date),
             ).fetchone()
-            return int(row["use_count"])
+            return int(row["use_count"]) if row else 0
 
     def release_daily_random_add(self, emlalock_user_id: str):
         user_id = str(emlalock_user_id)
