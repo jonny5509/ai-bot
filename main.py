@@ -122,12 +122,25 @@ class EmlaLockBot(commands.Bot):
                 finally:
                     await api.close()
             else:
-                if not self.storage.get_account(message.author.id):
+                account = self.storage.get_account(message.author.id)
+                if not account:
                     await message.reply("Use /link to securely connect your EmlaLock account first.")
                     return
+                api = EmlaLockClient(self.settings.emlalock_api_base_url)
+                try:
+                    info = await api.info(account["emlalock_user_id"], account["api_key"])
+                    session = info.get("chastitysession") or {}
+                    if int(session.get("status", 0)) != 1 or str(session.get("wearerid")) != account["emlalock_user_id"]:
+                        await message.reply("Your linked account does not have an active wearer session.")
+                        return
+                    session_id = str(session.get("chastitysessionid", ""))
+                except EmlaLockError as exc:
+                    await message.reply(str(exc))
+                    return
+                finally:
+                    await api.close()
 
-            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id,
-                                   session_id if operation == "subtract" else None)
+            view = ConfirmTimeView(self, message.author.id, operation, seconds, target_id, session_id)
             try:
                 target_text = "your linked active session" if operation == "add" else f"<@{target_id}>'s session"
                 await message.author.send(
