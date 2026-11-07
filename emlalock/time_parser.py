@@ -12,14 +12,16 @@ _TOKEN = re.compile(r"(\d+)\s*([a-zA-Z]+)")
 
 def parse_duration(text: str) -> int:
     """Convert explicit week/day/hour/minute/second components to seconds."""
-    remaining = text.strip()
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Tell me an amount and unit, such as 2 hours or 30 minutes.")
+    remaining = re.sub(r"\band\b", " ", text.strip(), flags=re.IGNORECASE)
     matches = list(_TOKEN.finditer(remaining))
     if not matches:
         raise ValueError("Tell me an amount and unit, such as 2 hours or 30 minutes.")
 
     consumed = "".join(match.group(0) for match in matches)
-    normalized = re.sub(r"[\s,]+", "", remaining).lower()
-    if re.sub(r"[\s,]+", "", consumed).lower() != normalized:
+    normalize = lambda value: re.sub(r"[\s,]+", "", value).lower()
+    if normalize(consumed) != normalize(remaining):
         raise ValueError("I couldn't understand that duration. Use weeks, days, hours, minutes, or seconds.")
 
     total = 0
