@@ -10,6 +10,7 @@ A Python Discord assistant for linking EmlaLock accounts, reading the linked use
 - Natural-language requests when the bot is mentioned, with OpenAI intent detection and duration parsing.
 - Private DM confirmation before time-changing requests.
 - `/session` and conversational session lookup.
+- `/session` displays the session start timestamp (UTC), elapsed time, remaining time, status, wearer, and keyholder. It shows lock/device information only if EmlaLock includes a corresponding field; otherwise it clearly says the API did not provide it.
 - `/session` displays EmlaLock usernames for the wearer and keyholder when those accounts are linked; otherwise it safely falls back to the EmlaLock User ID.
 - `/add duration` for the linked user's own active wearer session.
 - `/subtract @wearer duration` when the caller's linked EmlaLock account is the holder of the target's active session. The official API holder key parameter is used.
