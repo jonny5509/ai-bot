@@ -299,7 +299,7 @@ class AccountCommands(commands.Cog):
                     if len(held_sessions) == 1:
                         session, _wearer_account = held_sessions[0]
                     elif len(held_sessions) > 1:
-                        choices = "\\n".join(
+                        choices = "\n".join(
                             f"• Session **{item[0].get('chastitysessionid', 'unknown')}** "
                             f"(wearer EmlaLock ID: {item[1]['emlalock_user_id']})"
                             for item in held_sessions)
@@ -465,7 +465,7 @@ class AccountCommands(commands.Cog):
                     if len(held_wearers) == 1:
                         wearer, _linked_account, _matched_session = held_wearers[0]
                     elif len(held_wearers) > 1:
-                        choices = "\\n".join(
+                        choices = "\n".join(
                             f"• {discord.utils.escape_markdown(item[0].display_name)} "
                             f"(session {item[2].get('chastitysessionid', 'unknown')})"
                             for item in held_wearers
