@@ -339,10 +339,8 @@ class AccountCommands(commands.Cog):
                 # Discord's Administrator permission does not bypass role hierarchy.
                 # Check known hierarchy restrictions before making the API request.
                 if member.id == guild.owner_id:
-                    logging.warning(
-                        "Skipping nickname sync for Discord server owner (member_id=%s).",
-                        member.id,
-                    )
+                    # Discord does not allow bots to edit the server owner's nickname.
+                    # Skip silently; this is expected and not an actionable sync failure.
                     continue
                 bot_member = guild.me
                 if bot_member and member.top_role >= bot_member.top_role:
