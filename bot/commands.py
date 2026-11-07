@@ -336,12 +336,44 @@ class AccountCommands(commands.Cog):
         for discord_user_id, username in usernames.items():
             member = member_by_id.get(discord_user_id)
             if member:
+                # Discord's Administrator permission does not bypass role hierarchy.
+                # Check known hierarchy restrictions before making the API request.
+                if member.id == guild.owner_id:
+                    logging.warning(
+                        "Skipping nickname sync for Discord server owner (member_id=%s).",
+                        member.id,
+                    )
+                    continue
+                bot_member = guild.me
+                if bot_member and member.top_role >= bot_member.top_role:
+                    logging.warning(
+                        "Cannot sync nickname for member_id=%s: their highest role (%s, position %s) "
+                        "is not below the bot's highest role (%s, position %s). Move the bot role above theirs.",
+                        member.id,
+                        member.top_role.name,
+                        member.top_role.position,
+                        bot_member.top_role.name,
+                        bot_member.top_role.position,
+                    )
+                    continue
                 try:
                     await self.sync_member_nickname(member, username)
-                except discord.Forbidden:
-                    logging.warning("Could not sync a linked member's nickname; check Manage Nicknames and role hierarchy.")
-                except discord.HTTPException:
-                    logging.warning("Discord rejected a linked member nickname update.")
+                except discord.Forbidden as exc:
+                    logging.warning(
+                        "Discord denied nickname sync for member_id=%s (HTTP %s, Discord code %s): %s",
+                        member.id,
+                        exc.status,
+                        exc.code,
+                        exc.text,
+                    )
+                except discord.HTTPException as exc:
+                    logging.warning(
+                        "Nickname sync failed for member_id=%s (HTTP %s, Discord code %s): %s",
+                        member.id,
+                        exc.status,
+                        exc.code,
+                        exc.text,
+                    )
 
         if not settings:
             return (0, 0)
