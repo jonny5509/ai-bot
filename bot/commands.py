@@ -210,11 +210,19 @@ class AccountCommands(commands.Cog):
             end_value = session.get("enddate")
             start_display = format_timestamp(start_value)
             try:
-                elapsed_display = format_hms(now - int(float(start_value)))
+                elapsed_display = (
+                    format_hms(now - int(float(start_value)))
+                    if start_display != "Not provided by EmlaLock"
+                    else "Not provided by EmlaLock"
+                )
             except (TypeError, ValueError, OverflowError):
                 elapsed_display = "Not provided by EmlaLock"
             try:
-                remaining_display = format_hms(int(float(end_value)) - now)
+                remaining_display = (
+                    format_hms(int(float(end_value)) - now)
+                    if format_timestamp(end_value) != "Not provided by EmlaLock"
+                    else "Not provided by EmlaLock"
+                )
             except (TypeError, ValueError, OverflowError):
                 remaining_display = "Not provided by EmlaLock"
 
