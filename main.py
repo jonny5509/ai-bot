@@ -49,6 +49,26 @@ class EmlaLockBot(commands.Bot):
         self._discord_log_handler = DiscordLogHandler(self)
         self._discord_log_handler.setFormatter(logging.Formatter('%(levelname)s %(name)s: %(message)s'))
 
+    async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+        # Channel restrictions already send a private explanation before returning
+        # CheckFailure. Treat that as an expected denial instead of logging it as
+        # an unhandled application-command error.
+        if isinstance(error, discord.app_commands.CheckFailure) and interaction.response.is_done():
+            return
+        logging.error(
+            "Unhandled application command error for %s",
+            getattr(interaction.command, "qualified_name", "unknown"),
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(
+                    "Something went wrong while running that command. Please try again or check the bot logs.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                pass
+
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
         # Persistent adoption panels and request buttons continue working after restarts.
