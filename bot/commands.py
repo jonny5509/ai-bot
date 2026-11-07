@@ -1065,17 +1065,13 @@ class AccountCommands(commands.Cog):
             "The active session and keyholder permission will be checked again before applying.",
             view=view, ephemeral=True)
 
-    @app_commands.command(name="randomtime", description="Once daily, randomly add or subtract time from your own session")
+    @app_commands.command(name="randomtime", description="Randomly change time on your own active session")
     async def randomtime(self, interaction: discord.Interaction):
         account = self.bot.storage.get_account(interaction.user.id)
         if not account:
             await interaction.response.send_message("Use /link first to link your EmlaLock account.", ephemeral=True)
             return
-        if self.bot.storage.daily_random_add_used(account["emlalock_user_id"]):
-            await interaction.response.send_message(
-                "You have already used your daily random time change. You can use it again after 00:00 UTC.",
-                ephemeral=True)
-            return
+        used_today = self.bot.storage.daily_random_add_count(account["emlalock_user_id"])
 
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         try:
@@ -1110,7 +1106,7 @@ class AccountCommands(commands.Cog):
                         remaining = int(float(session.get("duration")))
                     except (TypeError, ValueError, OverflowError):
                         remaining = 0
-                if remaining < 1:
+                if remaining < 1 and used_today == 0:
                     await interaction.response.send_message(
                         "EmlaLock did not provide a usable current duration for the random subtraction option.", ephemeral=True)
                     return
