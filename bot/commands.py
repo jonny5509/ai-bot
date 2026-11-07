@@ -260,10 +260,12 @@ class AccountCommands(commands.Cog):
         linked = {a["discord_user_id"]: a for a in accounts}
         api = EmlaLockClient(self.bot.settings.emlalock_api_base_url)
         active_sessions = []
+        verified_user_ids = set()
         try:
             for account in accounts:
                 try:
                     data = await api.info(account["emlalock_user_id"], account["api_key"])
+                    verified_user_ids.add(account["emlalock_user_id"])
                     session = data.get("chastitysession") or {}
                     if int(session.get("status", 0)) == 1:
                         active_sessions.append(session)
@@ -289,6 +291,8 @@ class AccountCommands(commands.Cog):
             if not account:
                 continue
             uid = account["emlalock_user_id"]
+            if uid not in verified_user_ids:
+                continue
             is_wearer = any(str(s.get("wearerid")) == uid for s in active_sessions)
             is_holder = any(str(s.get("holderid")) == uid for s in active_sessions)
             desired = set()
