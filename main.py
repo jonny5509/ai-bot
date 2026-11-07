@@ -1,4 +1,5 @@
 import logging
+import re
 import discord
 from discord.ext import commands
 
@@ -207,6 +208,28 @@ def main():
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    # HTTPX logs request URLs at INFO level. EmlaLock puts account IDs and API
+    # credentials in query parameters, so redact them before anything reaches
+    # the terminal or log files.
+    class SensitiveQueryFilter(logging.Filter):
+        _pattern = re.compile(
+            r"([?&](?:userid|apikey|holderapikey)=)[^&\\s\"'<>]*",
+            re.IGNORECASE,
+        )
+
+        def filter(self, record):
+            message = record.getMessage()
+            redacted = self._pattern.sub(r"\\1[REDACTED]", message)
+            if redacted != message:
+                record.msg = redacted
+                record.args = ()
+            return True
+
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(SensitiveQueryFilter())
+    # Also avoid routine HTTP request URL output; warnings/errors remain visible.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     missing = [name for name, value in {
         "DISCORD_TOKEN": settings.discord_token,
         "OPENAI_API_KEY": settings.openai_api_key,
