@@ -201,11 +201,11 @@ class AccountCommands(commands.Cog):
         managed = set(roles.values())
         for member in members:
             account = linked.get(member.id)
-            if not account or account["emlalock_user_id"] not in verified_user_ids:
+            if account and account["emlalock_user_id"] not in verified_user_ids:
                 continue
-            uid = account["emlalock_user_id"]
-            is_wearer = any(str(session.get("wearerid")) == uid for session in active_sessions)
-            is_holder = any(str(session.get("holderid")) == uid for session in active_sessions)
+            uid = account["emlalock_user_id"] if account else None
+            is_wearer = bool(uid) and any(str(session.get("wearerid")) == uid for session in active_sessions)
+            is_holder = bool(uid) and any(str(session.get("holderid")) == uid for session in active_sessions)
             desired = set()
             if is_wearer:
                 desired.add(roles["wearer"])
@@ -234,8 +234,16 @@ class AccountCommands(commands.Cog):
     @app_commands.command(name="unlink", description="Disconnect your linked EmlaLock account")
     async def unlink(self, interaction: discord.Interaction):
         removed = self.bot.storage.unlink_account(interaction.user.id)
+        role_note = ""
+        if removed and interaction.guild:
+            try:
+                changed, failed = await self.sync_guild_roles(interaction.guild)
+                role_note = f" Session roles refreshed ({changed} member(s) updated)."
+            except Exception:
+                role_note = " Session roles will be refreshed by the automatic check."
         await interaction.response.send_message(
-            "Your EmlaLock account has been disconnected." if removed else "You do not have a linked EmlaLock account.",
+            ("Your EmlaLock account has been disconnected." + role_note)
+            if removed else "You do not have a linked EmlaLock account.",
             ephemeral=True)
 
     @app_commands.command(name="account", description="Check your EmlaLock account link")
@@ -439,8 +447,10 @@ class AccountCommands(commands.Cog):
                     role = await interaction.guild.create_role(name=name, reason="EmlaLock bot session roles")
                 roles.append(role)
             self.bot.storage.save_guild_roles(interaction.guild.id, *(r.id for r in roles))
+            changed, failed = await self.sync_guild_roles(interaction.guild)
             await interaction.followup.send(
-                "Session roles are configured. Use /syncroles to synchronize linked members. "
+                f"Session roles are configured and an initial sync has run ({changed} member(s) updated; "
+                f"{failed} failed). Automatic checks now run every 5 minutes. "
                 "The bot's top role must be above these roles.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("I need Manage Roles permission and a role position above the roles to manage.", ephemeral=True)
