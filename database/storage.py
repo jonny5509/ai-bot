@@ -38,8 +38,12 @@ class Storage:
             db.execute("""CREATE TABLE IF NOT EXISTS daily_random_add_usage (
                 emlalock_user_id TEXT NOT NULL,
                 usage_date TEXT NOT NULL,
+                use_count INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (emlalock_user_id, usage_date)
             )""")
+            usage_columns = {row["name"] for row in db.execute("PRAGMA table_info(daily_random_add_usage)").fetchall()}
+            if "use_count" not in usage_columns:
+                db.execute("ALTER TABLE daily_random_add_usage ADD COLUMN use_count INTEGER NOT NULL DEFAULT 1")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
             db.execute("""CREATE TABLE IF NOT EXISTS friendlink_messages (
                 message_id TEXT PRIMARY KEY,
@@ -78,30 +82,56 @@ class Storage:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).date().isoformat()
 
-    def daily_random_add_used(self, emlalock_user_id: str) -> bool:
+    def daily_random_add_count(self, emlalock_user_id: str) -> int:
         with self._connect() as db:
             row = db.execute(
-                "SELECT 1 FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
+                "SELECT use_count FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
                 (str(emlalock_user_id), self._utc_usage_date()),
             ).fetchone()
-        return row is not None
+        return int(row["use_count"]) if row else 0
 
-    def claim_daily_random_add(self, emlalock_user_id: str) -> bool:
-        # The composite primary key makes this an atomic one-use-per-UTC-day claim,
-        # including when two confirmation buttons are clicked at nearly the same time.
+    def daily_random_add_used(self, emlalock_user_id: str) -> bool:
+        return self.daily_random_add_count(emlalock_user_id) >= 2
+
+    def claim_daily_random_add(self, emlalock_user_id: str) -> int:
+        # Atomically reserve one of two daily uses. The second use is the add-only
+        # penalty; a third confirmed use is rejected. Failed API calls are released.
+        user_id = str(emlalock_user_id)
+        usage_date = self._utc_usage_date()
         with self._connect() as db:
             cursor = db.execute(
-                "INSERT OR IGNORE INTO daily_random_add_usage (emlalock_user_id, usage_date) VALUES (?, ?)",
-                (str(emlalock_user_id), self._utc_usage_date()),
+                "INSERT OR IGNORE INTO daily_random_add_usage (emlalock_user_id, usage_date, use_count) VALUES (?, ?, 1)",
+                (user_id, usage_date),
             )
-        return cursor.rowcount == 1
+            if cursor.rowcount == 1:
+                return 1
+            cursor = db.execute(
+                "UPDATE daily_random_add_usage SET use_count=use_count+1 "
+                "WHERE emlalock_user_id=? AND usage_date=? AND use_count<2",
+                (user_id, usage_date),
+            )
+            if cursor.rowcount != 1:
+                return 0
+            row = db.execute(
+                "SELECT use_count FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
+                (user_id, usage_date),
+            ).fetchone()
+            return int(row["use_count"])
 
     def release_daily_random_add(self, emlalock_user_id: str):
+        user_id = str(emlalock_user_id)
+        usage_date = self._utc_usage_date()
         with self._connect() as db:
-            db.execute(
-                "DELETE FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
-                (str(emlalock_user_id), self._utc_usage_date()),
+            cursor = db.execute(
+                "UPDATE daily_random_add_usage SET use_count=use_count-1 "
+                "WHERE emlalock_user_id=? AND usage_date=? AND use_count>1",
+                (user_id, usage_date),
             )
+            if cursor.rowcount == 0:
+                db.execute(
+                    "DELETE FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=? AND use_count=1",
+                    (user_id, usage_date),
+                )
 
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
         encrypted = self.cipher.encrypt(api_key.encode("utf-8"))
