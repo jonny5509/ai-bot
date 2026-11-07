@@ -341,7 +341,8 @@ class AccountCommands(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        if self.bot.storage.get_guild_roles(member.guild.id):
+        if (self.bot.storage.get_guild_roles(member.guild.id)
+                or self.bot.storage.get_adoption_roles(member.guild.id)):
             try:
                 await self.sync_guild_roles(member.guild)
             except Exception:
@@ -527,6 +528,7 @@ class AccountCommands(commands.Cog):
                     changed += 1
                 except discord.Forbidden:
                     failed += 1
+        return changed, failed
 
 
     @app_commands.command(name="link", description="Securely link your EmlaLock account")
@@ -1088,8 +1090,10 @@ class AccountCommands(commands.Cog):
             await interaction.response.send_message("Use this in a server.", ephemeral=True)
             return
         settings = self.bot.storage.get_guild_roles(guild.id)
-        if not settings:
-            await interaction.response.send_message("Run /setuproles first.", ephemeral=True)
+        adoption_settings = self.bot.storage.get_adoption_roles(guild.id)
+        if not settings and not adoption_settings:
+            await interaction.response.send_message(
+                "Run /setuproles or /setupadoption first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
