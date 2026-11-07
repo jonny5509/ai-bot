@@ -691,7 +691,6 @@ class AccountCommands(commands.Cog):
         await self._post_friendlink(interaction)
 
     @app_commands.command(name="friendlink_for", description="Keyholders: post a linked wearer's Friend Link")
-    @app_commands.default_permissions(discord.Permissions.none())
     @app_commands.describe(wearer="The linked wearer whose active session you hold")
     async def friendlink_for(self, interaction: discord.Interaction, wearer: discord.Member):
         if wearer.id == interaction.user.id:
@@ -1140,7 +1139,6 @@ class AccountCommands(commands.Cog):
             view=view, ephemeral=True)
 
     @app_commands.command(name="subtract", description="Subtract time from a linked wearer session you hold")
-    @app_commands.default_permissions(discord.Permissions.none())
     @app_commands.describe(wearer="Optional: choose a linked wearer session you hold", amount="Amount of time to change",
                            unit="Time unit: seconds, minutes, hours, days, or weeks")
     @app_commands.choices(unit=[
@@ -1244,7 +1242,6 @@ class AccountCommands(commands.Cog):
             view=view, ephemeral=True)
 
     @app_commands.command(name="setnotifications", description="Choose where confirmed time changes are announced")
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setnotifications(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if not interaction.guild:
@@ -1256,7 +1253,6 @@ class AccountCommands(commands.Cog):
             ephemeral=True)
 
     @app_commands.command(name="disablenotifications", description="Stop posting time-change announcements")
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def disablenotifications(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -1266,7 +1262,6 @@ class AccountCommands(commands.Cog):
         await interaction.response.send_message("Time-change announcements have been disabled.", ephemeral=True)
 
     @app_commands.command(name="setuproles", description="Create bot-managed session roles for this server")
-    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def setuproles(self, interaction: discord.Interaction, wearer_role_name: str = "Wearer",
                          keyholder_role_name: str = "Keyholder", dual_role_name: str = "Dual Role"):
@@ -1295,7 +1290,6 @@ class AccountCommands(commands.Cog):
             await interaction.followup.send("I need Manage Roles permission and a role position above the roles to manage.", ephemeral=True)
 
     @app_commands.command(name="syncroles", description="Synchronize session roles from linked EmlaLock accounts")
-    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def syncroles(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -1324,7 +1318,6 @@ class AccountCommands(commands.Cog):
 
 
     @app_commands.command(name="setupchannels", description="Create missing EmlaLock channels and configure bot destinations")
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setupchannels(self, interaction: discord.Interaction,
                             commands_channel: discord.TextChannel | None = None,
@@ -1425,7 +1418,6 @@ class AccountCommands(commands.Cog):
             )
 
     @app_commands.command(name="setupadoption", description="Create automatic Looking for Keyholder and Looking for Wearer roles")
-    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def setupadoption(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -1474,7 +1466,6 @@ class AccountCommands(commands.Cog):
                 "I need Manage Roles permission and a role position above the adoption roles.", ephemeral=True)
 
     @app_commands.command(name="adoptionpanel", description="Post the adoption request panel in the adoption channel")
-    @app_commands.default_permissions(manage_roles=True)
     @app_commands.checks.has_permissions(manage_roles=True)
     async def adoptionpanel(self, interaction: discord.Interaction):
         if not interaction.guild or not interaction.channel or not hasattr(interaction.channel, "send"):
