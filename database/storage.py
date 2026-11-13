@@ -35,101 +35,13 @@ class Storage:
                 preferred_session_id TEXT,
                 preferences_json TEXT NOT NULL DEFAULT '{}'
             )""")
-            db.execute("""CREATE TABLE IF NOT EXISTS daily_random_add_usage (
-                emlalock_user_id TEXT NOT NULL,
-                usage_date TEXT NOT NULL,
-                use_count INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (emlalock_user_id, usage_date)
-            )""")
-            usage_columns = {row["name"] for row in db.execute("PRAGMA table_info(daily_random_add_usage)").fetchall()}
-            if "use_count" not in usage_columns:
-                db.execute("ALTER TABLE daily_random_add_usage ADD COLUMN use_count INTEGER NOT NULL DEFAULT 1")
             db.execute("CREATE UNIQUE INDEX IF NOT EXISTS unique_emlalock_user_link ON linked_accounts(emlalock_user_id)")
-            db.execute("""CREATE TABLE IF NOT EXISTS friendlink_messages (
-                message_id TEXT PRIMARY KEY,
-                guild_id TEXT NOT NULL,
-                channel_id TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                wearer_emlalock_id TEXT NOT NULL
-            )""")
-            columns = {row["name"] for row in db.execute("PRAGMA table_info(guild_settings)").fetchall()}
-            if "notification_channel_id" not in columns:
-                db.execute("ALTER TABLE guild_settings ADD COLUMN notification_channel_id TEXT")
             db.execute("""CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id TEXT PRIMARY KEY,
                 wearer_role_id TEXT,
                 keyholder_role_id TEXT,
-                dual_role_id TEXT,
-                notification_channel_id TEXT
+                dual_role_id TEXT
             )""")
-            db.execute("""CREATE TABLE IF NOT EXISTS guild_channels (guild_id TEXT NOT NULL, purpose TEXT NOT NULL, channel_id TEXT, PRIMARY KEY (guild_id, purpose))""")
-            db.execute("""CREATE TABLE IF NOT EXISTS adoption_roles (
-                guild_id TEXT PRIMARY KEY,
-                looking_for_keyholder_role_id TEXT NOT NULL,
-                looking_for_wearer_role_id TEXT NOT NULL
-            )""")
-            db.execute("""CREATE TABLE IF NOT EXISTS adoption_requests (
-                request_id TEXT PRIMARY KEY,
-                guild_id TEXT NOT NULL,
-                requester_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )""")
-
-    @staticmethod
-    def _utc_usage_date():
-        from datetime import datetime, timezone
-        return datetime.now(timezone.utc).date().isoformat()
-
-    def daily_random_add_count(self, emlalock_user_id: str) -> int:
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT use_count FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
-                (str(emlalock_user_id), self._utc_usage_date()),
-            ).fetchone()
-        return int(row["use_count"]) if row else 0
-
-    def daily_random_add_used(self, emlalock_user_id: str) -> bool:
-        return self.daily_random_add_count(emlalock_user_id) > 0
-
-    def claim_daily_random_add(self, emlalock_user_id: str) -> int:
-        # Atomically count each confirmed daily use. The first is random; later uses
-        # are handled as add-only by the command. Failed API calls are released.
-        user_id = str(emlalock_user_id)
-        usage_date = self._utc_usage_date()
-        with self._connect() as db:
-            cursor = db.execute(
-                "INSERT OR IGNORE INTO daily_random_add_usage (emlalock_user_id, usage_date, use_count) VALUES (?, ?, 1)",
-                (user_id, usage_date),
-            )
-            if cursor.rowcount == 1:
-                return 1
-            cursor = db.execute(
-                "UPDATE daily_random_add_usage SET use_count=use_count+1 "
-                "WHERE emlalock_user_id=? AND usage_date=?",
-                (user_id, usage_date),
-            )
-            row = db.execute(
-                "SELECT use_count FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=?",
-                (user_id, usage_date),
-            ).fetchone()
-            return int(row["use_count"]) if row else 0
-
-    def release_daily_random_add(self, emlalock_user_id: str):
-        user_id = str(emlalock_user_id)
-        usage_date = self._utc_usage_date()
-        with self._connect() as db:
-            cursor = db.execute(
-                "UPDATE daily_random_add_usage SET use_count=use_count-1 "
-                "WHERE emlalock_user_id=? AND usage_date=? AND use_count>1",
-                (user_id, usage_date),
-            )
-            if cursor.rowcount == 0:
-                db.execute(
-                    "DELETE FROM daily_random_add_usage WHERE emlalock_user_id=? AND usage_date=? AND use_count=1",
-                    (user_id, usage_date),
-                )
 
     def link_account(self, discord_user_id: int, emlalock_user_id: str, api_key: str):
         encrypted = self.cipher.encrypt(api_key.encode("utf-8"))
@@ -182,78 +94,6 @@ class Storage:
                                 (str(discord_user_id),))
             return cursor.rowcount > 0
 
-    def save_friendlink_message(self, guild_id: int, channel_id: int, message_id: int,
-                                session_id: str, wearer_emlalock_id: str):
-        with self._connect() as db:
-            db.execute(
-                """INSERT OR REPLACE INTO friendlink_messages
-                   (message_id, guild_id, channel_id, session_id, wearer_emlalock_id)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (str(message_id), str(guild_id), str(channel_id), str(session_id), str(wearer_emlalock_id)),
-            )
-
-    def list_ended_friendlink_messages(self, guild_id: int, active_session_ids: set[str],
-                                      verified_wearer_ids: set[str]) -> list[dict]:
-        with self._connect() as db:
-            rows = db.execute(
-                "SELECT * FROM friendlink_messages WHERE guild_id=?",
-                (str(guild_id),),
-            ).fetchall()
-        return [
-            dict(row) for row in rows
-            if row["session_id"] not in active_session_ids
-            and row["wearer_emlalock_id"] in verified_wearer_ids
-        ]
-
-    def delete_friendlink_message_record(self, message_id: int):
-        with self._connect() as db:
-            db.execute("DELETE FROM friendlink_messages WHERE message_id=?", (str(message_id),))
-
-
-    def save_adoption_roles(self, guild_id: int, looking_for_keyholder: int, looking_for_wearer: int):
-        with self._connect() as db:
-            db.execute(
-                """INSERT INTO adoption_roles
-                   (guild_id, looking_for_keyholder_role_id, looking_for_wearer_role_id)
-                   VALUES (?, ?, ?) ON CONFLICT(guild_id) DO UPDATE SET
-                   looking_for_keyholder_role_id=excluded.looking_for_keyholder_role_id,
-                   looking_for_wearer_role_id=excluded.looking_for_wearer_role_id""",
-                (str(guild_id), str(looking_for_keyholder), str(looking_for_wearer)),
-            )
-
-    def get_adoption_roles(self, guild_id: int):
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT * FROM adoption_roles WHERE guild_id=?", (str(guild_id),)
-            ).fetchone()
-        return dict(row) if row else None
-
-    def create_adoption_request(self, request_id: str, guild_id: int,
-                                requester_id: int, target_id: int):
-        with self._connect() as db:
-            db.execute(
-                """INSERT INTO adoption_requests
-                   (request_id, guild_id, requester_id, target_id, status)
-                   VALUES (?, ?, ?, ?, 'pending')""",
-                (request_id, str(guild_id), str(requester_id), str(target_id)),
-            )
-
-    def get_adoption_request(self, request_id: str):
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT * FROM adoption_requests WHERE request_id=?", (request_id,)
-            ).fetchone()
-        return dict(row) if row else None
-
-    def set_adoption_request_status(self, request_id: str, status: str) -> bool:
-        with self._connect() as db:
-            cursor = db.execute(
-                """UPDATE adoption_requests SET status=?
-                   WHERE request_id=? AND status='pending'""",
-                (status, request_id),
-            )
-        return cursor.rowcount > 0
-
     def set_preferred_session(self, discord_user_id: int, session_id: str):
         with self._connect() as db:
             db.execute("""INSERT INTO user_preferences(discord_user_id, preferred_session_id)
@@ -274,24 +114,3 @@ class Storage:
             row = db.execute("SELECT * FROM guild_settings WHERE guild_id=?",
                              (str(guild_id),)).fetchone()
         return dict(row) if row else None
-
-    def set_notification_channel(self, guild_id: int, channel_id: int | None):
-        with self._connect() as db:
-            db.execute(
-                """INSERT INTO guild_settings(guild_id, notification_channel_id)
-                   VALUES (?, ?) ON CONFLICT(guild_id) DO UPDATE SET
-                   notification_channel_id=excluded.notification_channel_id""",
-                (str(guild_id), str(channel_id) if channel_id is not None else None),
-            )
-
-
-    def set_guild_channel(self, guild_id: int, purpose: str, channel_id: int | None):
-        if purpose not in {"commands", "sessions", "adoption", "friendlinks", "logs"}:
-            raise ValueError("Unknown channel purpose")
-        with self._connect() as db:
-            db.execute("INSERT INTO guild_channels(guild_id,purpose,channel_id) VALUES(?,?,?) ON CONFLICT(guild_id,purpose) DO UPDATE SET channel_id=excluded.channel_id", (str(guild_id), purpose, str(channel_id) if channel_id is not None else None))
-
-    def get_guild_channel(self, guild_id: int, purpose: str):
-        with self._connect() as db:
-            row = db.execute("SELECT channel_id FROM guild_channels WHERE guild_id=? AND purpose=?", (str(guild_id), purpose)).fetchone()
-        return int(row["channel_id"]) if row and row["channel_id"] else None

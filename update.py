@@ -60,30 +60,7 @@ def main() -> int:
                 raise RuntimeError("Could not find the bot files in the downloaded GitHub archive.")
 
             source = source_dirs[0]
-            added: list[str] = []
-            updated: list[str] = []
-            unchanged: list[str] = []
-            ignored_parts = {"__pycache__", ".pytest_cache"}
-
-            # Compare individual files before copying so the updater can show
-            # exactly what changed, rather than only counting top-level items.
-            for item in source.rglob("*"):
-                if not item.is_file():
-                    continue
-                relative = item.relative_to(source)
-                if should_preserve(root / relative):
-                    continue
-                if ignored_parts.intersection(relative.parts) or item.suffix == ".pyc":
-                    continue
-
-                destination = root / relative
-                if not destination.exists():
-                    added.append(relative.as_posix())
-                elif destination.read_bytes() != item.read_bytes():
-                    updated.append(relative.as_posix())
-                else:
-                    unchanged.append(relative.as_posix())
-
+            copied = 0
             for item in source.iterdir():
                 destination = root / item.name
                 if should_preserve(destination):
@@ -99,21 +76,11 @@ def main() -> int:
                     )
                 else:
                     shutil.copy2(item, destination)
+                copied += 1
 
-        print("\\nUpdate completed successfully.")
-        print(f"Added: {len(added)} file(s)")
-        for name in added:
-            print(f"  + {name}")
-        print(f"Updated: {len(updated)} file(s)")
-        for name in updated:
-            print(f"  * {name}")
-        if not added and not updated:
-            print("  No new or changed files were found.")
-        print(f"Unchanged: {len(unchanged)} file(s)")
-        print("Preserved: .env, local databases, credentials, logs, and virtual environments.")
-        print("Note: Files removed from GitHub are not automatically deleted locally.")
-        if "requirements.txt" in added or "requirements.txt" in updated:
-            print("Dependencies changed. Run: python -m pip install -r requirements.txt")
+        print(f"Update files copied successfully ({copied} top-level items).")
+        print("Your .env file and local database files were left untouched.")
+        print("If requirements.txt changed, run: python -m pip install -r requirements.txt")
         print("Restart the bot with: python main.py")
         return 0
 

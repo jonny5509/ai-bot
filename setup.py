@@ -1,4 +1,4 @@
-"""Local-only first-run setup wizard.
+﻿"""Local-only first-run setup wizard.
 
 Run with: python setup.py
 The wizard binds to 127.0.0.1 only and writes secrets to .env.
@@ -16,12 +16,12 @@ from cryptography.fernet import Fernet
 
 ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
-HOST = "127.0.0.1"
-PORT = int(os.getenv("SETUP_PORT", "8765"))
+HOST = os.getenv("SETUP_HOST", "0.0.0.0")
+PORT = int(os.getenv("SETUP_PORT", "3002"))
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EmlaLock Bot · Setup</title>
+<title>EmlaLock Bot Â· Setup</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1020;--panel:#141c31;--muted:#9aa8c2;--text:#edf2ff;--accent:#8b9cff;--line:#293653}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#202c55 0,transparent 38%),var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
@@ -35,29 +35,29 @@ button{background:var(--accent);color:#0b1020;border:0;border-radius:10px;paddin
 .success{border-color:#397a62;background:#102d27}.footer{font-size:12px;color:var(--muted);margin:24px 0}
 @media(max-width:600px){main{margin:24px auto}.grid{grid-template-columns:1fr}.panel{padding:19px}h1{font-size:29px}}
 </style></head><body><main>
-<div class="brand">EmlaLock AI · First-run wizard</div><h1>Let's get your bot ready.</h1>
+<div class="brand">EmlaLock AI Â· First-run wizard</div><h1>Let's get your bot ready.</h1>
 <p>Enter your service credentials and choose the basics. This page runs on your own machine and saves settings to a local .env file.</p>
 <div id="message" class="notice" hidden></div>
 <form method="post" action="/save">
-<section class="panel"><h2>01 · Connect Discord</h2>
-<div class="field"><label for="discord">Discord bot token</label><input id="discord" name="DISCORD_TOKEN" type="password" autocomplete="off" required placeholder="Paste your bot token"><small>Get this from Discord Developer Portal → Bot. Never share it.</small></div>
+<section class="panel"><h2>01 Â· Connect Discord</h2>
+<div class="field"><label for="discord">Discord bot token</label><input id="discord" name="DISCORD_TOKEN" type="password" autocomplete="off" required placeholder="Paste your bot token"><small>Get this from Discord Developer Portal â†’ Bot. Never share it.</small></div>
 </section>
-<section class="panel"><h2>02 · AI assistant</h2>
-<div class="field"><label for="openai">OpenAI API key</label><input id="openai" name="OPENAI_API_KEY" type="password" autocomplete="off" required placeholder="sk-…"></div>
-<div class="grid"><div class="field"><label for="model">Model</label><select id="model" name="OPENAI_MODEL"><option value="gpt-4o-mini">GPT-4o mini · economical</option><option value="gpt-4.1-mini">GPT-4.1 mini</option><option value="gpt-4.1">GPT-4.1</option></select></div>
+<section class="panel"><h2>02 Â· AI assistant</h2>
+<div class="field"><label for="openai">OpenAI API key</label><input id="openai" name="OPENAI_API_KEY" type="password" autocomplete="off" required placeholder="sk-â€¦"></div>
+<div class="grid"><div class="field"><label for="model">Model</label><select id="model" name="OPENAI_MODEL"><option value="gpt-4o-mini">GPT-4o mini Â· economical</option><option value="gpt-4.1-mini">GPT-4.1 mini</option><option value="gpt-4.1">GPT-4.1</option></select></div>
 <div class="field"><label for="level">Log level</label><select id="level" name="LOG_LEVEL"><option>INFO</option><option>WARNING</option><option>ERROR</option></select></div></div>
 </section>
-<section class="panel"><h2>03 · EmlaLock connection</h2>
+<section class="panel"><h2>03 Â· EmlaLock connection</h2>
 <div class="field"><label for="api">API base URL</label><input id="api" name="EMLALOCK_API_BASE_URL" value="https://api.emlalock.com" required></div>
 <p>Each Discord member links their own EmlaLock User ID and API key privately inside Discord using /link. Do not enter another member's key here.</p>
 </section>
-<section class="panel"><h2>04 · Local security</h2>
+<section class="panel"><h2>04 Â· Local security</h2>
 <p>A new encryption key will be generated automatically if one is not already configured. Keep the key and database backup together; losing the key makes saved EmlaLock credentials unreadable.</p>
 <label class="check"><input type="checkbox" name="confirm" value="yes" required> I understand the .env file contains secrets and must never be committed or shared.</label>
 </section>
 <button type="submit">Save settings</button>
 </form>
-<p class="footer">Local-only setup · Bound to 127.0.0.1 · Secrets are not sent to a third-party setup service.</p>
+<p class="footer">Local-only setup Â· Bound to 127.0.0.1 Â· Secrets are not sent to a third-party setup service.</p>
 </main></body></html>"""
 
 
@@ -156,11 +156,16 @@ section{background:#141c31;border:1px solid #293653;border-radius:16px;padding:2
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Open http://{HOST}:{PORT} in your browser.")
-    print("This setup server is only reachable from this computer.")
+    display_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
+    print(f"Open http://{display_host}:{PORT} in your browser.")
+    if HOST == "127.0.0.1":
+        print("This setup server is only reachable from this computer.")
+    else:
+        print("This setup server is listening on all interfaces; use a trusted network.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nSetup wizard stopped.")
     finally:
         server.server_close()
+

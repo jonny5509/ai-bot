@@ -1,38 +1,13 @@
 import logging
-import re
 import discord
 from discord.ext import commands
 
 from config import load_settings
 from database.storage import Storage
 from bot.commands import AccountCommands, ConfirmTimeView
-from bot.adoption import AdoptionPanelView, AdoptionDecisionButton
 from ai.intent_detection import IntentDetector
 from emlalock.api import EmlaLockClient, EmlaLockError
 from emlalock.time_parser import parse_duration
-
-
-
-class DiscordLogHandler(logging.Handler):
-    def __init__(self, bot):
-        super().__init__(level=logging.WARNING)
-        self.bot = bot
-
-    def emit(self, record):
-        if not self.bot.is_ready():
-            return
-        message = re.sub(r"([?&](?:userid|apikey|holderapikey)=)[^&\s\"\'<>]*", r"\1[REDACTED]", self.format(record), flags=re.IGNORECASE)
-        for guild in self.bot.guilds:
-            channel_id = self.bot.storage.get_guild_channel(guild.id, "logs")
-            channel = guild.get_channel(channel_id) if channel_id else None
-            if channel is not None:
-                self.bot.loop.create_task(self._send(channel, message))
-
-    async def _send(self, channel, message):
-        try:
-            await channel.send("LOG: " + message[:1800])
-        except (discord.Forbidden, discord.HTTPException):
-            pass
 
 
 class EmlaLockBot(commands.Bot):
@@ -45,83 +20,10 @@ class EmlaLockBot(commands.Bot):
         self.storage = Storage(settings.database_path, settings.credential_encryption_key)
         self.intent_detector = IntentDetector(settings.openai_api_key, settings.openai_model)
         self.pending_actions = {}
-        self._guild_commands_synced = False
-        self._discord_log_handler = DiscordLogHandler(self)
-        self._discord_log_handler.setFormatter(logging.Formatter('%(levelname)s %(name)s: %(message)s'))
-
-    async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
-        # Channel restrictions already send a private explanation before returning
-        # CheckFailure. Treat that as an expected denial instead of logging it as
-        # an unhandled application-command error.
-        if isinstance(error, discord.app_commands.CheckFailure) and interaction.response.is_done():
-            return
-        logging.error(
-            "Unhandled application command error for %s",
-            getattr(interaction.command, "qualified_name", "unknown"),
-            exc_info=(type(error), error, error.__traceback__),
-        )
-        if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message(
-                    "Something went wrong while running that command. Please try again or check the bot logs.",
-                    ephemeral=True,
-                )
-            except discord.HTTPException:
-                pass
 
     async def setup_hook(self):
         await self.add_cog(AccountCommands(self))
-        # Persistent adoption panels and request buttons continue working after restarts.
-        self.add_view(AdoptionPanelView(self))
-        self.add_dynamic_items(AdoptionDecisionButton)
-
-        # Register commands per server for immediate availability. Global
-        # commands can take a long time to propagate and can appear alongside
-        # older guild-scoped copies as duplicates.
-        logging.info("Loaded %d application commands for guild synchronization",
-                     len(self.tree.get_commands()))
-
-    async def _sync_guild_commands(self, guild: discord.Guild):
-        # Remove stale guild commands, then publish exactly the current local
-        # command definitions to this guild.
-        self.tree.clear_commands(guild=guild)
-        self.tree.copy_global_to(guild=guild)
-        # Hide one-time setup commands after their corresponding configuration
-        # has been saved for this server. Other servers retain their own setup state.
-        if self.storage.get_guild_roles(guild.id):
-            self.tree.remove_command("setuproles", guild=guild)
-        if self.storage.get_adoption_roles(guild.id):
-            self.tree.remove_command("setupadoption", guild=guild)
-        synced = await self.tree.sync(guild=guild)
-        logging.info("Published %d application commands to %s (%s)",
-                     len(synced), guild.name, guild.id)
-
-    async def on_ready(self):
-        if self._discord_log_handler not in logging.getLogger().handlers:
-            logging.getLogger().addHandler(self._discord_log_handler)
-        # Remove any previously published global commands so Discord has one
-        # guild-scoped copy per server, not global + guild duplicates.
-        if self.application_id:
-            try:
-                await self.http.bulk_upsert_global_commands(self.application_id, [])
-                logging.info("Removed legacy global application commands")
-            except discord.HTTPException:
-                logging.exception("Could not remove legacy global application commands")
-
-        if self._guild_commands_synced:
-            return
-        self._guild_commands_synced = True
-        for guild in self.guilds:
-            try:
-                await self._sync_guild_commands(guild)
-            except discord.HTTPException:
-                logging.exception("Could not refresh application commands for guild %s (%s)", guild.name, guild.id)
-
-    async def on_guild_join(self, guild: discord.Guild):
-        try:
-            await self._sync_guild_commands(guild)
-        except discord.HTTPException:
-            logging.exception("Could not publish application commands for new guild %s (%s)", guild.name, guild.id)
+        await self.tree.sync()
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
@@ -164,12 +66,6 @@ class EmlaLockBot(commands.Bot):
                 return
             await self.process_commands(message)
             return
-
-        if message.guild:
-            commands_channel_id = self.storage.get_guild_channel(message.guild.id, "commands")
-            if commands_channel_id and message.channel.id != commands_channel_id:
-                await message.reply(f"Please use bot commands in <#{commands_channel_id}>.")
-                return
 
         content = message.content.replace(f"<@{self.user.id}>", "").replace(
             f"<@!{self.user.id}>", "").strip()
@@ -292,28 +188,6 @@ def main():
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-    # HTTPX logs request URLs at INFO level. EmlaLock puts account IDs and API
-    # credentials in query parameters, so redact them before anything reaches
-    # the terminal or log files.
-    class SensitiveQueryFilter(logging.Filter):
-        _pattern = re.compile(
-            r"([?&](?:userid|apikey|holderapikey)=)[^&\\s\"'<>]*",
-            re.IGNORECASE,
-        )
-
-        def filter(self, record):
-            message = record.getMessage()
-            redacted = self._pattern.sub(r"\\1[REDACTED]", message)
-            if redacted != message:
-                record.msg = redacted
-                record.args = ()
-            return True
-
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(SensitiveQueryFilter())
-    # Also avoid routine HTTP request URL output; warnings/errors remain visible.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
     missing = [name for name, value in {
         "DISCORD_TOKEN": settings.discord_token,
         "OPENAI_API_KEY": settings.openai_api_key,
